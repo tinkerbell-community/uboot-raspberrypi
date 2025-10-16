@@ -1,0 +1,363 @@
+name: U-Boot for Raspberry Pi Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      uboot_version:
+        description: "U-Boot version tag to build"
+        required: false
+        default: "v2025.10"
+        type: string
+      rpi_firmware_version:
+        description: "Raspberry Pi firmware version"
+        required: false
+        default: "1.20241008"
+        type: string
+  push:
+    tags:
+      - 'v*'
+
+env:
+  UBOOT_VERSION: ${{ inputs.uboot_version || 'v2025.10' }}
+  UBOOT_DIR: ${{ github.workspace }}/u-boot
+  RPI_FIRMWARE_VERSION: ${{ inputs.rpi_firmware_version || '1.20241008' }}
+  BUILD_DIR: ${{ github.workspace }}/build
+  FIRMWARE_DIR: ${{ github.workspace }}/firmware
+  MOUNT_DIR: ${{ github.workspace }}/mnt
+  SRC_DIR: ${{ github.workspace }}/src
+  IMAGE_NAME: "uboot-raspberrypi-${{ inputs.uboot_version || 'v2025.10' }}.img"
+  OUT_DIR: ${{ github.workspace }}/out
+
+jobs:
+  build-uboot-image:
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: src
+
+      - name: Checkout u-boot
+        uses: actions/checkout@v4
+        with:
+          repository: u-boot/u-boot
+          fetch-depth: 1
+          path: u-boot
+          ref: ${{ env.UBOOT_VERSION }}
+
+      - name: Checkout Raspberry Pi firmware
+        uses: actions/checkout@v4
+        with:
+          repository: raspberrypi/firmware
+          fetch-depth: 1
+          path: firmware
+          ref: ${{ env.RPI_FIRMWARE_VERSION }}
+
+      - name: Cache and install build dependencies
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: build-essential git bison flex bc libssl-dev libgnutls28-dev device-tree-compiler dosfstools parted xz-utils
+          version: 1.0
+
+      - name: Configure U-Boot for Raspberry Pi 4 ARM64
+        working-directory: ${{ env.UBOOT_DIR }}
+        run: |
+          for f in ${{ env.SRC_DIR }}/patches/*.patch; do
+            echo "Applying patch: $f"
+            patch -p1 < "$f"
+          done
+
+          make rpi_arm64_defconfig
+
+      - name: Build U-Boot
+        working-directory: ${{ env.UBOOT_DIR }}
+        run: |
+          make -j $(nproc) HOSTLDLIBS_mkimage="-lssl -lcrypto"
+          ls -la u-boot.bin
+
+      - name: Prepare build directory
+        run: |
+          mkdir -p ${{ env.BUILD_DIR }}/boot
+          mkdir -p ${{ env.MOUNT_DIR }}
+          mkdir -p ${{ env.OUT_DIR }}
+      
+      - name: Prepare boot directory
+        working-directory: ${{ env.BUILD_DIR }}
+        run: |
+          cp ${{ env.SRC_DIR }}/config.txt .
+
+          # Copy firmware files
+          cp -r ${{ env.FIRMWARE_DIR }}/boot/* ./
+
+          # Copy U-Boot binary
+          cp ${{ env.UBOOT_DIR }}/u-boot.bin ./
+          
+          echo "Boot directory contents:"
+          ls -lah ./
+
+      - name: Create SD card image
+        id: create_image
+        working-directory: ${{ env.OUT_DIR }}
+        run: |
+          # Calculate required size (boot files + 100MB padding)
+          BOOT_SIZE=$(du -sm boot | cut -f1)
+          IMAGE_SIZE=$((BOOT_SIZE + 100))
+          
+          echo "Creating ${IMAGE_SIZE}MB image..."
+          
+          # Create image file
+          IMAGE_NAME="uboot-raspberrypi-${UBOOT_VERSION}.img"
+          dd if=/dev/zero of="$IMAGE_NAME" bs=1M count=$IMAGE_SIZE status=progress
+          
+          # Create partition table
+          parted "$IMAGE_NAME" --script mklabel msdos
+          parted "$IMAGE_NAME" --script mkpart primary fat32 1MiB 100%
+          parted "$IMAGE_NAME" --script set 1 boot on
+          
+          # Setup loop device
+          LOOP_DEVICE=$(sudo losetup --find --show --partscan "$IMAGE_NAME")
+          echo "Loop device: $LOOP_DEVICE"
+          
+          # Format partition
+          sudo mkfs.vfat -F 32 -n BOOT "${LOOP_DEVICE}p1"
+          
+          # Mount and copy files
+          mkdir -p ${{ env.MOUNT_DIR }}
+          sudo mount "${LOOP_DEVICE}p1" ${{ env.MOUNT_DIR }}
+          sudo cp -rv ${{ env.BUILD_DIR }}/* ${{ env.MOUNT_DIR }}
+          sudo sync
+          sudo umount ${{ env.MOUNT_DIR }}
+          
+          # Cleanup
+          sudo losetup -d "$LOOP_DEVICE"
+          
+          # Calculate checksums
+          sha256sum "$IMAGE_NAME" > "${IMAGE_NAME}.sha256"
+          
+          # Get image info
+          IMAGE_SIZE_BYTES=$(stat -c%s "$IMAGE_NAME")
+          echo "image_name=$IMAGE_NAME" >> $GITHUB_OUTPUT
+          echo "image_size=$IMAGE_SIZE_BYTES" >> $GITHUB_OUTPUT
+          
+          ls -lh "$IMAGE_NAME"*
+
+      - name: Compress image
+        working-directory: ${{ env.OUT_DIR }}
+        env:
+          IMAGE_NAME: ${{ steps.create_image.outputs.image_name }}
+        run: |
+          echo "Compressing image..."
+          xz -9 -T 0 "${IMAGE_NAME}"
+          
+          # Update checksum for compressed file
+          sha256sum "${IMAGE_NAME}.xz" > "${IMAGE_NAME}.xz.sha256"
+
+      - name: Create release notes
+        id: release_notes
+        run: |
+          cat > release_notes.md << EOF
+          # Raspberry Pi 4 U-Boot SD Card Image
+          
+          ## 📦 Components
+          
+          - **U-Boot Version**: \`${{ env.UBOOT_VERSION }}\`
+          - **Raspberry Pi Firmware**: \`${{ env.RPI_FIRMWARE_VERSION }}\`
+          - **Architecture**: ARM64 (aarch64)
+          - **Target Device**: Raspberry Pi 4 / Raspberry Pi 400
+          
+          ## 🚀 Features
+          
+          - ✅ PXE network boot support
+          - ✅ DHCP client built-in
+          - ✅ EFI boot support
+          - ✅ USB storage boot
+          - ✅ NVMe boot support (with patches)
+          - ✅ Custom boot command for network-first boot
+          
+          ## 📥 Installation
+          
+          ### Using Raspberry Pi Imager
+          
+          1. Download \`${{ steps.create_image.outputs.image_name }}.xz\`
+          2. Open Raspberry Pi Imager
+          3. Choose "Use custom" and select the downloaded \`.xz\` file
+          4. Select your SD card
+          5. Write the image
+          
+          ### Using dd (Linux/macOS)
+          
+          \`\`\`bash
+          # Decompress
+          xz -d ${{ steps.create_image.outputs.image_name }}.xz
+          
+          # Write to SD card (replace /dev/sdX with your SD card device)
+          sudo dd if=${{ steps.create_image.outputs.image_name }} of=/dev/sdX bs=4M status=progress
+          sudo sync
+          \`\`\`
+          
+          ## ⚙️ Boot Configuration
+          
+          The image includes a custom \`config.txt\` that:
+          - Enables 64-bit ARM mode
+          - Uses U-Boot as the kernel
+          - Configures minimal GPU memory
+          - Enables UART for debugging
+          
+          ## 🔧 Boot Command
+          
+          The default boot sequence:
+          1. Attempt USB disk boot (EFI)
+          2. Attempt network boot via DHCP/PXE
+          3. Fall back to local disk
+          
+          ## ✅ Verification
+          
+          Verify the image integrity:
+          
+          \`\`\`bash
+          sha256sum -c ${{ steps.create_image.outputs.image_name }}.xz.sha256
+          \`\`\`
+          
+          ## 📊 Image Information
+          
+          - **Uncompressed Size**: ${{ steps.create_image.outputs.image_size }} bytes
+          - **Format**: Raw disk image (MBR partition table, FAT32 boot partition)
+          
+          ---
+          
+          *Built on $(date -u +"%Y-%m-%d %H:%M:%S UTC")*
+          EOF
+          
+          cat release_notes.md
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpi4-uboot-image
+          path: |
+            ${{ env.OUT_DIR }}/${{ steps.create_image.outputs.image_name }}.xz
+            ${{ env.OUT_DIR }}/${{ steps.create_image.outputs.image_name }}.xz.sha256
+            release_notes.md
+          retention-days: 30
+
+      - name: Report build status
+        run: |
+          echo "✅ U-Boot SD card image created successfully"
+          echo "📦 Image: ${{ steps.create_image.outputs.image_name }}.xz"
+          echo "📏 Uncompressed size: ${{ steps.create_image.outputs.image_size }} bytes"
+          echo "🔖 U-Boot version: ${{ env.UBOOT_VERSION }}"
+          echo "🔖 Firmware version: ${{ env.RPI_FIRMWARE_VERSION }}"
+
+  publish-github-release:
+    name: Publish GitHub Release
+    needs: build-uboot-image
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: rpi4-uboot-image
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          body_path: artifacts/release_notes.md
+          files: |
+            artifacts/*.xz
+            artifacts/*.sha256
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-oras:
+    name: Publish to ORAS Registry
+    needs: build-uboot-image
+    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: rpi4-uboot-image
+          path: artifacts
+
+      - name: Install ORAS
+        run: |
+          VERSION="1.2.0"
+          curl -LO "https://github.com/oras-project/oras/releases/download/v${VERSION}/oras_${VERSION}_linux_amd64.tar.gz"
+          mkdir -p oras-install/
+          tar -zxf oras_${VERSION}_*.tar.gz -C oras-install/
+          sudo mv oras-install/oras /usr/local/bin/
+          rm -rf oras_${VERSION}_*.tar.gz oras-install/
+          oras version
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version from tag or input
+        id: extract_version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            VERSION="${{ github.ref_name }}"
+          else
+            VERSION="uboot-${{ env.UBOOT_VERSION }}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Publishing version: ${VERSION}"
+
+      - name: Push artifacts to ORAS
+        working-directory: artifacts
+        run: |
+          # Convert repository name to lowercase for GHCR compatibility
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_BASE="ghcr.io/${REPO_LOWER}/uboot-raspberrypi"
+          VERSION="${{ steps.extract_version.outputs.version }}"
+          
+          echo "Publishing to: ${IMAGE_BASE}:${VERSION}"
+          
+          # Push all artifacts as a single OCI artifact
+          oras push "${IMAGE_BASE}:${VERSION}" \
+            --artifact-type application/vnd.tinkerbell.uboot.image.v1 \
+            *.xz:application/octet-stream \
+            *.sha256:text/plain \
+            release_notes.md:text/markdown
+          
+          echo "✅ Published to ${IMAGE_BASE}:${VERSION}"
+          
+          # Also tag as latest if this is a release
+          if [ "${{ github.event_name }}" = "push" ]; then
+            oras tag "${IMAGE_BASE}:${VERSION}" latest
+            echo "✅ Tagged as latest"
+          fi
+
+      - name: Report ORAS publication
+        run: |
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "✅ Artifacts published to ORAS registry"
+          echo "� Registry: ghcr.io/${REPO_LOWER}/uboot-raspberrypi"
+          echo "🏷️  Version: ${{ steps.extract_version.outputs.version }}"
+          echo ""
+          echo "To pull the artifacts:"
+          echo "  oras pull ghcr.io/${REPO_LOWER}/uboot-raspberrypi:${{ steps.extract_version.outputs.version }}"
+
