@@ -2,7 +2,7 @@
 # Raspberry Pi boot configuration for U-Boot (ARM64)
 # Built for: rpi_arm64_defconfig
 # =====================================================
-
+#
 # Give more RAM to Linux (U-Boot doesn’t need GPU memory)
 gpu_mem=16
 
