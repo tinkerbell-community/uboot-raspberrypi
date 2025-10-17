@@ -132,6 +132,15 @@ jobs:
 
           make rpi_arm64_defconfig
 
+          echo "CONFIG_PREBOOT=\"pci enum; usb start; nvme scan; setenv localcmd 'setenv boot_targets \\\"mmc nvme usb pxe dhcp\\\"; bootflow scan -lb'\"" >> .config
+
+      #    echo "CONFIG_CMD_WGET=y" >> .config
+      #    echo "CONFIG_NET_HTTP=y" >> .config
+      #    echo "CONFIG_BOOTSTD_FULL=y" >> .config
+      #    echo "CONFIG_CMD_DHCP=y" >> .config
+      #    echo "CONFIG_CMD_PXE=y" >> .config
+      #    echo "CONFIG_PXE_HTTP=y" >> .config
+
       - name: Build U-Boot
         working-directory: ${{ env.UBOOT_DIR }}
         run: |
