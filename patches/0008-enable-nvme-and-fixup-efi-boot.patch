@@ -12,7 +12,7 @@ diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
 index f9dade18f6..f2394e4a52 100644
 --- a/configs/rpi_arm64_defconfig
 +++ b/configs/rpi_arm64_defconfig
-@@ -65,3 +65,19 @@ CONFIG_VIDEO_BCM2835=y
+@@ -65,3 +65,22 @@ CONFIG_VIDEO_BCM2835=y
  CONFIG_CONSOLE_SCROLL_LINES=10
  CONFIG_PHYS_TO_BUS=y
  # CONFIG_HEXDUMP is not set
@@ -28,7 +28,10 @@ index f9dade18f6..f2394e4a52 100644
 +CONFIG_BOOTMETH_DISTRO_PXE=y
 +CONFIG_BOOTMETH_EFILOADER=y
 +CONFIG_BOOTMETH_GLOBAL=n
-+CONFIG_BOOTMETH_SCRIPT=n
++CONFIG_BOOTMETH_SCRIPT=y
++CONFIG_CMD_WGET=y
++CONFIG_NET_PROTO_HTTP=y
++CONFIG_NET_TFTP_VARS=y
 +CONFIG_PXE_UTILS=y
 +# Disable EFI bootmanager (reserves memory on 0x00080000 -> prevents continuing after being successful)
 +CONFIG_CMD_BOOTEFI_BOOTMGR=n
