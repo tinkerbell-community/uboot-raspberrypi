@@ -37,13 +37,13 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           path: src
 
       - name: Checkout u-boot
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: u-boot/u-boot
           fetch-depth: 1
@@ -51,7 +51,7 @@ jobs:
           ref: ${{ env.UBOOT_VERSION }}
 
       - name: Checkout Raspberry Pi firmware
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: raspberrypi/firmware
           fetch-depth: 1
