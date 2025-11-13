@@ -134,6 +134,7 @@ jobs:
 
           echo "CONFIG_PREBOOT=\"pci enum; usb start; nvme scan; setenv localcmd 'setenv boot_targets \\\"mmc nvme usb pxe dhcp\\\"; bootflow scan -lb'\"" >> .config
           echo "CONFIG_SERVERIP_FROM_PROXYDHCP=y" >> .config
+          echo "CONFIG_BOOTP_PXE_DHCP_OPTION=y" >> .config
 
       #    echo "CONFIG_CMD_WGET=y" >> .config
       #    echo "CONFIG_NET_HTTP=y" >> .config
