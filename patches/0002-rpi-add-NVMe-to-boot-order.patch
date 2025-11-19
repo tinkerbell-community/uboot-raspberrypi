@@ -15,11 +15,11 @@ diff --git a/board/raspberrypi/rpi/rpi.env b/board/raspberrypi/rpi/rpi.env
 index 30228285ed..89f6c5a839 100644
 --- a/board/raspberrypi/rpi/rpi.env
 +++ b/board/raspberrypi/rpi/rpi.env
-@@ -77,4 +77,4 @@ pxefile_addr_r=0x05500000
- fdt_addr_r=0x05600000
- ramdisk_addr_r=0x05700000
+@@ -74,4 +74,4 @@ pxefile_addr_r=0x02500000
+ fdt_addr_r=0x02600000
+ ramdisk_addr_r=0x02700000
  
 -boot_targets=mmc usb pxe dhcp
-+boot_targets=mmc pxe nvme usb dhcp
++boot_targets=mmc nvme usb pxe dhcp
 -- 
 2.43.0
