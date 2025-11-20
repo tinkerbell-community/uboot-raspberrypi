@@ -171,7 +171,7 @@ jobs:
     steps:
       - name: Checkout repository
         id: checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
         with:
           repository: ipxe/ipxe
           ref: master
@@ -183,14 +183,24 @@ jobs:
         with:
           packages: build-essential git liblzma-dev
           version: 1.0
-      - name: Build iPXE for ARM64 Raspberry Pi
+
+      - name: Get iPXE commit hash
+        id: ipxe_commit
+        working-directory: ipxe
         run: |
-          version_override="VERSION_MAJOR=1 VERSION_MINOR=21 VERSION_PATCH=1"
-          printf '#!ipxe\ndhcp && chain ${filename} || exit\n' | tee ipxe/src/embedded.ipxe
-          make -C ipxe/src CONFIG=rpi "${version_override}" EXTRAVERSION="${extra_version}" EMBED=embedded.ipxe -j $(nproc) bin-arm64-efi/snp.efi
-          ls -lah ipxe/src/bin-arm64-efi/snp.efi
-        env:
-          EXTRA_VERSION: ${{ steps.checkout.outputs.commit }}
+          commit_short=$(git rev-parse --short=7 HEAD)
+          echo "commit_short=${commit_short}" >> $GITHUB_OUTPUT
+          echo "iPXE commit: ${commit_short}"
+
+      - name: Build iPXE for ARM64 Raspberry Pi
+        working-directory: ipxe/src
+        run: |
+          # Create embedded script
+          printf '#!ipxe\ndhcp && chain ${filename} || exit\n' > embedded.ipxe
+
+          # Build with proper version variables
+          make VERSION_MAJOR=1 VERSION_MINOR=21 VERSION_PATCH=1 EXTRAVERSION="+ (${{ steps.ipxe_commit.outputs.commit_short }})" EMBED=embedded.ipxe -j $(nproc) bin-arm64-efi/snp.efi
+          ls -lah bin-arm64-efi/snp.efi
 
       - name: Upload iPXE binary
         uses: actions/upload-artifact@v4
@@ -335,7 +345,7 @@ jobs:
           cat > release_notes.md << EOF
           # Raspberry Pi 4 U-Boot SD Card Image
 
-          ## 📦 Components
+          ## Components
 
           - **U-Boot Version**: \`${{ env.UBOOT_VERSION }}\`
           - **Release Version**: \`${RELEASE_VERSION}\`
@@ -343,17 +353,17 @@ jobs:
           - **Architecture**: ARM64 (aarch64)
           - **Target Device**: Raspberry Pi 4 / Raspberry Pi 400
 
-          ## 🚀 Features
+          ## Features
 
-          - ✅ PXE network boot support
-          - ✅ DHCP client built-in
-          - ✅ EFI boot support
-          - ✅ USB storage boot
-          - ✅ NVMe boot support (with patches)
-          - ✅ iPXE network boot (snp.efi included)
-          - ✅ Custom boot command for network-first boot
+          - PXE network boot support
+          - DHCP client built-in
+          - EFI boot support
+          - USB storage boot
+          - NVMe boot support (with patches)
+          - iPXE network boot (snp.efi included)
+          - Custom boot command for network-first boot
 
-          ## 📥 Installation
+          ## Installation
 
           ### Using Raspberry Pi Imager
 
@@ -374,7 +384,7 @@ jobs:
           sudo sync
           \`\`\`
 
-          ## ⚙️ Boot Configuration
+          ## Boot Configuration
 
           The image includes a custom \`config.txt\` that:
           - Enables 64-bit ARM mode
@@ -382,14 +392,14 @@ jobs:
           - Configures minimal GPU memory
           - Enables UART for debugging
 
-          ## 🔧 Boot Command
+          ## Boot Sequence
 
-          The default boot sequence:
+          The default boot order:
           1. Attempt USB disk boot (EFI)
           2. Attempt network boot via DHCP/PXE
           3. Fall back to local disk
 
-          ## ✅ Verification
+          ## Verification
 
           Verify the image integrity:
 
@@ -397,7 +407,7 @@ jobs:
           sha256sum -c ${{ steps.create_image.outputs.image_name }}.xz.sha256
           \`\`\`
 
-          ## 📊 Image Information
+          ## Image Information
 
           - **Uncompressed Size**: ${{ steps.create_image.outputs.image_size }} bytes
           - **Format**: Raw disk image (MBR partition table, FAT32 boot partition)
