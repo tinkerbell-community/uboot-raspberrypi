@@ -8,6 +8,11 @@ on:
         required: false
         default: "v2026.01-rc3"
         type: string
+      uboot_rpi5_version:
+        description: "U-Boot version tag to build"
+        required: false
+        default: "v2025.04-rpi5-3"
+        type: string
       rpi_firmware_version:
         description: "Raspberry Pi firmware version"
         required: false
@@ -19,6 +24,7 @@ on:
 
 env:
   UBOOT_VERSION: ${{ inputs.uboot_version || 'v2026.01-rc3' }}
+  UBOOT_RPI5_VERSION: ${{ inputs.uboot_rpi5_version || 'v2025.04-rpi5-3' }}
   UBOOT_DIR: ${{ github.workspace }}/u-boot
   RPI_FIRMWARE_VERSION: ${{ inputs.rpi_firmware_version || '1.20250915' }}
   BUILD_DIR: ${{ github.workspace }}/build
@@ -137,6 +143,55 @@ jobs:
         with:
           name: uboot-binary
           path: u-boot/u-boot.bin
+          retention-days: 1
+          if-no-files-found: error
+
+  build-uboot-rpi5:
+    needs: determine-version
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout u-boot
+        uses: actions/checkout@v4
+        with:
+          repository: talos-rpi5/u-boot
+          fetch-depth: 1
+          path: u-boot-rpi5
+          ref: ${{ env.UBOOT_RPI5_VERSION }}
+
+      - name: Cache and install build dependencies
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: build-essential git bison flex bc libssl-dev libgnutls28-dev device-tree-compiler
+          version: 1.0
+
+      - name: Configure U-Boot for Raspberry Pi 5 ARM64
+        working-directory: u-boot-rpi5
+        run: |
+
+          make rpi_5_defconfig
+
+          echo "CONFIG_SERVERIP_FROM_PROXYDHCP=y" >> .config
+          echo "CONFIG_BOOTP_PXE_DHCP_OPTION=y" >> .config
+          echo "CONFIG_BOOTP_SEND_HOSTNAME=y" >> .config
+          echo "CONFIG_BOOTP_SUBNETMASK=y" >> .config
+          echo "CONFIG_BOOTP_GATEWAY=y" >> .config
+          echo "CONFIG_BOOTP_DNS=y" >> .config
+          echo "CONFIG_BOOTP_NTPSERVER=y" >> .config
+
+      - name: Build U-Boot
+        working-directory: u-boot-rpi5
+        run: |
+          make -j $(nproc) HOSTLDLIBS_mkimage="-lssl -lcrypto" u-boot-rpi5.bin
+          ls -la u-boot-rpi5.bin
+
+      - name: Upload U-Boot binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: uboot-rpi5-binary
+          path: u-boot-rpi5/u-boot-rpi5.bin
           retention-days: 1
           if-no-files-found: error
 
@@ -271,6 +326,9 @@ jobs:
 
           # Copy U-Boot binary
           cp artifacts/uboot-binary/u-boot.bin build/
+
+          # Copy U-Boot for Raspberry Pi 5 binary
+          cp artifacts/uboot-rpi5-binary/u-boot-rpi5.bin build/
 
           # Copy iPXE binary
           mkdir -p build/EFI/BOOT

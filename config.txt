@@ -13,7 +13,6 @@ enable_uart=1
 dtoverlay=disable-bt
 # Disable Wireless Lan.
 dtoverlay=disable-wifi
-dtoverlay=vc4-kms-v3d,noaudio
 
 [pi4]
 # Slightly higher GPU mem for HDMI init
@@ -21,9 +20,11 @@ gpu_mem=64
 dtoverlay=vc4-kms-v3d-pi4,noaudio
 
 [pi5]
-dtoverlay=vc4-kms-v3d-pi5,noaudio
-# Disable the primary/console UART.
+kernel=u-boot-rpi5.bin
+# Disable console output for debugging
 enable_uart=0
+# Force HDMI output and hotplug detection
+hdmi_force_hotplug=1
 
 [all]
 # Enable maximum compatibility on both HDMI ports;
