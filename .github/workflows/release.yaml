@@ -184,7 +184,9 @@ jobs:
       - name: Build U-Boot
         working-directory: u-boot-rpi5
         run: |
-          make -j $(nproc) HOSTLDLIBS_mkimage="-lssl -lcrypto" u-boot-rpi5.bin
+          make -j $(nproc) HOSTLDLIBS_mkimage="-lssl -lcrypto" u-boot.bin
+          ls -la u-boot.bin
+          cp u-boot.bin u-boot-rpi5.bin
           ls -la u-boot-rpi5.bin
 
       - name: Upload U-Boot binary
