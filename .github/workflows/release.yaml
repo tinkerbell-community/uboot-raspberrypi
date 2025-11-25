@@ -274,7 +274,7 @@ jobs:
 
           # Copy iPXE binary
           mkdir -p build/EFI/BOOT
-          cp artifacts/ipxe-arm64-binary/snp.efi build/EFI/BOOT/
+          cp artifacts/ipxe-arm64-binary/snp.efi build/EFI/BOOT/BOOTAA64.EFI
 
           echo "Build directory contents:"
           ls -lah build/
