@@ -133,7 +133,7 @@ jobs:
           ls -la u-boot.bin
 
       - name: Upload U-Boot binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: uboot-binary
           path: u-boot/u-boot.bin
@@ -156,7 +156,7 @@ jobs:
           ref: ${{ env.RPI_FIRMWARE_VERSION }}
 
       - name: Upload firmware
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: rpi-firmware
           path: firmware/boot/
@@ -203,7 +203,7 @@ jobs:
           ls -lah bin-arm64-efi/snp.efi
 
       - name: Upload iPXE binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ipxe-arm64-binary
           path: ipxe/src/bin-arm64-efi/snp.efi
@@ -224,7 +224,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload config.txt
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: config-files
           path: config.txt
@@ -427,7 +427,7 @@ jobs:
           cat release_notes.md
 
       - name: Upload final artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: rpi4-uboot-image
           path: |
