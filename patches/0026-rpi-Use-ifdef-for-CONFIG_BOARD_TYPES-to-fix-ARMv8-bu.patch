@@ -1,0 +1,32 @@
+From 3ade98739b4b044d0986106480b18bc929629b26 Mon Sep 17 00:00:00 2001
+From: Patrick Hunziker <patrick@hunziker.io>
+Date: Sat, 7 Jun 2025 19:27:02 +0200
+Subject: [PATCH 19/21] rpi: Use #ifdef for CONFIG_BOARD_TYPES to fix ARMv8
+ build
+
+Replace IS_ENABLED(CONFIG_BOARD_TYPES) with #ifdef to ensure gd->board_type is not compiled in when the field does not exist.
+
+Signed-off-by: appkins <nbatkins@gmail.com>
+---
+ board/raspberrypi/rpi/rpi.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/board/raspberrypi/rpi/rpi.c b/board/raspberrypi/rpi/rpi.c
+index 5818c7662d8..aa32d0cd87d 100644
+--- a/board/raspberrypi/rpi/rpi.c
++++ b/board/raspberrypi/rpi/rpi.c
+@@ -522,9 +522,9 @@ static void get_board_revision(void)
+ 		model = &models[rev_type];
+ 	}
+ 
+-	if (IS_ENABLED(CONFIG_BOARD_TYPES)) {
++	#ifdef CONFIG_BOARD_TYPES
+ 		gd->board_type = rev_type;
+-	}
++	#endif
+ 
+ 	printf("RPI %s (0x%x)\n", model->name, revision);
+ }
+-- 
+2.52.0
+

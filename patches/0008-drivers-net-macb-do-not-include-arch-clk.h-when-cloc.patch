@@ -1,0 +1,40 @@
+From 10dcc72cbf38050bc1372fe3e4af265b622969b4 Mon Sep 17 00:00:00 2001
+From: Oleksii Moisieiev <oleksii_moisieiev@epam.com>
+Date: Thu, 23 May 2024 14:13:45 +0300
+Subject: [PATCH 05/21] drivers: net: macb: do not include arch/clk.h when
+ clocks enabled
+
+During initialization MACB should request clock rates to work
+properly. If CONFIG_CLK is not set then it uses special arch call
+named: 'get_macb_pclk_rate'
+This function is arch specific and should return fixed rate for macb
+clock even if clock subsystem was disabled.
+When CONFIG_CLK is enabled there is no need to include arch specific
+code and no need to declare 'get_macb_pclk_rate' call.
+Added conditional to include arch/clk.h only if clock subsystem is
+disabled.
+
+Signed-off-by: Oleksii Moisieiev <oleksii_moisieiev@epam.com>
+Reviewed-by: Volodymyr Babchuk <volodymyr_babchuk@epam.com>
+Signed-off-by: appkins <nbatkins@gmail.com>
+---
+ drivers/net/macb.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/net/macb.c b/drivers/net/macb.c
+index cbf5f605518..a54a268036d 100644
+--- a/drivers/net/macb.c
++++ b/drivers/net/macb.c
+@@ -38,7 +38,9 @@
+ #include <linux/mii.h>
+ #include <asm/io.h>
+ #include <linux/dma-mapping.h>
++#if !defined(CONFIG_CLK)
+ #include <asm/arch/clk.h>
++#endif
+ #include <linux/errno.h>
+ 
+ #include "macb.h"
+-- 
+2.52.0
+

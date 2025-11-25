@@ -1,0 +1,51 @@
+From 695b5591443864f8504885049c15df146c814848 Mon Sep 17 00:00:00 2001
+From: Oleksii Moisieiev <oleksii_moisieiev@epam.com>
+Date: Tue, 21 May 2024 20:30:54 +0300
+Subject: [PATCH 15/21] HACK: drivers: mfd: set bar configuration for RP1
+ driver
+
+Set bar address in the correct order. RP1 driver in Linux Kernel rely on
+the pci BAR configuration which initializes BARs based on BAR size.
+This results the Linux set BARs in the same order on each boot.
+U-boot does initialization without any sorting so the configuration
+may be different from the Linux kernel.
+Here BAR address configuration is set to match the Linux Kernel order
+to avoid fails on address translation.
+This should be changed after upstreaming RP1 driver to the Linux kernel
+mainline.
+
+Signed-off-by: Oleksii Moisieiev <oleksii_moisieiev@epam.com>
+Reviewed-by: Volodymyr Babchuk <volodymyr_babchuk@epam.com>
+Signed-off-by: appkins <nbatkins@gmail.com>
+---
+ drivers/mfd/rp1.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/drivers/mfd/rp1.c b/drivers/mfd/rp1.c
+index 265ed668f51..64008007be5 100644
+--- a/drivers/mfd/rp1.c
++++ b/drivers/mfd/rp1.c
+@@ -63,6 +63,20 @@ static int rp1_probe(struct udevice *dev)
+ 	/* Turn on bus-mastering */
+ 	dm_pci_clrset_config16(dev, PCI_COMMAND, 0, PCI_COMMAND_MASTER | PCI_COMMAND_MEMORY);
+ 
++	/*
++	 * HACK: Set bar address in the correct order. RP1 driver in Linux Kernel rely on
++	 * the pci BAR configuration which initializes BARs based on BAR size.
++	 * This results the Linux set BARs in the same order on each boot.
++	 * U-boot does initialization without any sorting so the configuration
++	 * may be different from the Linux kernel.
++	 * Here BAR address configuration is set to match the Linux Kernel order
++	 * to avoid fails on address translation.
++	 * This should be changed after upstreaming RP1 driver to the Linux kernel
++	 * mainline.
++	 */
++	dm_pci_write_config32(dev, PCI_BASE_ADDRESS_1, 0);
++	dm_pci_write_config32(dev, PCI_BASE_ADDRESS_0, 0x40000);
++
+ 	ret = rp1_get_bar_region(dev, &rp1->bar_start);
+ 	if (ret)
+ 		return ret;
+-- 
+2.52.0
+
