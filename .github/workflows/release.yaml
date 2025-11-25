@@ -199,7 +199,7 @@ jobs:
           printf '#!ipxe\ndhcp && chain ${filename} || exit\n' > embedded.ipxe
 
           # Create config file to enable TFTP
-          cat > config/rpi/general.h << 'EOF'
+          cat <<EOF | tee config/rpi/general.h
           #define CERT_CMD              /* Certificate management commands */
           #define DIGEST_CMD            /* Image crypto digest commands */
           #define DOWNLOAD_PROTO_TFTP   /* Trivial File Transfer Protocol */
@@ -240,6 +240,10 @@ jobs:
           #undef USB_HCD_UHCI           /* UHCI USB host controller */
           #undef USB_HCD_XHCI           /* xHCI USB host controller */
           #undef USB_KEYBOARD           /* USB keyboards */
+          EOF
+
+          cat <<EOF | tee config/rpi/crypto.h
+          #undef OCSP_CHECK
           EOF
 
           # Build with proper version variables
