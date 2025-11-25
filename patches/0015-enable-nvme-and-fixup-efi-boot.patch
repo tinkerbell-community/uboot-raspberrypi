@@ -9,10 +9,29 @@ Signed-off-by: Tom Plant <tom@tplant.com.au>
  1 file changed, 16 insertions(+)
 
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
-index 69e8e72c5d7..c2029a4f9b8 100644
+index 69e8e72c5d7..5f8e539a757 100644
 --- a/configs/rpi_arm64_defconfig
 +++ b/configs/rpi_arm64_defconfig
-@@ -65,3 +65,29 @@ CONFIG_VIDEO_BCM2835=y
+@@ -15,7 +15,7 @@ CONFIG_BOOTSTD_DEFAULTS=y
+ CONFIG_OF_BOARD_SETUP=y
+ CONFIG_FDT_SIMPLEFB=y
+ CONFIG_USE_PREBOOT=y
+-CONFIG_PREBOOT="pci enum; usb start;"
++CONFIG_PREBOOT="pci enum; nvme scan; usb start; bootflow scan;"
+ CONFIG_SYS_PBSIZE=1049
+ # CONFIG_DISPLAY_CPUINFO is not set
+ # CONFIG_DISPLAY_BOARDINFO is not set
+@@ -58,10 +58,37 @@ CONFIG_USB_HOST_ETHER=y
+ CONFIG_USB_ETHER_LAN78XX=y
+ CONFIG_USB_ETHER_SMSC95XX=y
+ CONFIG_VIDEO=y
+-# CONFIG_VIDEO_BPP8 is not set
+-# CONFIG_VIDEO_BPP16 is not set
++CONFIG_VIDEO_BPP8=y
++CONFIG_VIDEO_BPP16=y
++CONFIG_VIDEO_BPP32=y
+ CONFIG_SYS_WHITE_ON_BLACK=y
+ CONFIG_VIDEO_BCM2835=y
  CONFIG_CONSOLE_SCROLL_LINES=10
  CONFIG_PHYS_TO_BUS=y
  # CONFIG_HEXDUMP is not set
