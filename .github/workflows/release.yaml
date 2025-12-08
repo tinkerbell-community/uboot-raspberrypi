@@ -196,7 +196,7 @@ jobs:
         working-directory: ipxe/src
         run: |
           # Create embedded script
-          printf '#!ipxe\ndhcp && chain ${filename} || exit\n' > embedded.ipxe
+          printf '#!ipxe\ndhcp\nautoboot || exit\n' > embedded.ipxe
 
           # Create config file to enable TFTP
           cat <<EOF | tee config/rpi/general.h
