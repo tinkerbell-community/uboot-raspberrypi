@@ -9,10 +9,10 @@ Signed-off-by: Tom Plant <tom@tplant.com.au>
  1 file changed, 27 insertions(+), 1 deletion(-)
 
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
-index 69e8e72c5d7..5f8e539a757 100644
+index 69e8e72c5d7..25d07d002fe 100644
 --- a/configs/rpi_arm64_defconfig
 +++ b/configs/rpi_arm64_defconfig
-@@ -14,7 +14,7 @@ CONFIG_BOOTSTD_DEFAULTS=y
+@@ -15,7 +15,7 @@ CONFIG_BOOTSTD_DEFAULTS=y
  CONFIG_OF_BOARD_SETUP=y
  CONFIG_FDT_SIMPLEFB=y
  CONFIG_USE_PREBOOT=y
@@ -21,7 +21,7 @@ index 69e8e72c5d7..5f8e539a757 100644
  CONFIG_SYS_PBSIZE=1049
  # CONFIG_DISPLAY_CPUINFO is not set
  # CONFIG_DISPLAY_BOARDINFO is not set
-@@ -64,4 +64,31 @@ CONFIG_VIDEO_BCM2835=y
+@@ -65,3 +65,30 @@ CONFIG_VIDEO_BCM2835=y
  CONFIG_CONSOLE_SCROLL_LINES=10
  CONFIG_PHYS_TO_BUS=y
  # CONFIG_HEXDUMP is not set
