@@ -9,5 +9,5 @@ trim_trailing_whitespace = true
 end_of_line = lf
 max_line_length = off
 
-[*.md]
+[*.{md,patch}]
 trim_trailing_whitespace = false
