@@ -196,7 +196,12 @@ jobs:
         working-directory: ipxe/src
         run: |
           # Create embedded script
-          printf '#!ipxe\ndhcp\nautoboot || exit\n' > embedded.ipxe
+          cat <<EOF | tee embedded.ipxe
+          #!ipxe
+          set user-class Tinkerbell
+          dhcp
+          autoboot || exit
+          EOF
 
           # Create config file to enable TFTP
           cat <<EOF | tee config/rpi/general.h
