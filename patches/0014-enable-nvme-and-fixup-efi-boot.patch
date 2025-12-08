@@ -1,0 +1,57 @@
+From 04c8073b1ead282eac7b90432f39f104b006f824 Mon Sep 17 00:00:00 2001
+From: Tom Plant <tom@tplant.com.au>
+Date: Sun, 3 Dec 2023 09:33:24 +0000
+Subject: [PATCH] rpi: enable NVMe and fixup EFI boot
+
+Signed-off-by: Tom Plant <tom@tplant.com.au>
+---
+ configs/rpi_arm64_defconfig | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
+index 69e8e72c5d7..5f8e539a757 100644
+--- a/configs/rpi_arm64_defconfig
++++ b/configs/rpi_arm64_defconfig
+@@ -15,7 +15,7 @@ CONFIG_BOOTSTD_DEFAULTS=y
+ CONFIG_OF_BOARD_SETUP=y
+ CONFIG_FDT_SIMPLEFB=y
+ CONFIG_USE_PREBOOT=y
+-CONFIG_PREBOOT="pci enum; usb start;"
++CONFIG_PREBOOT="pci enum; nvme scan; usb start; bootflow scan;"
+ CONFIG_SYS_PBSIZE=1049
+ # CONFIG_DISPLAY_CPUINFO is not set
+ # CONFIG_DISPLAY_BOARDINFO is not set
+@@ -66,6 +66,22 @@ CONFIG_VIDEO_BCM2835=y
+ CONFIG_CONSOLE_SCROLL_LINES=10
+ CONFIG_PHYS_TO_BUS=y
+ # CONFIG_HEXDUMP is not set
++# Enable NVME
++CONFIG_NVME_PCI=y
++CONFIG_CMD_NVME=y
++CONFIG_NVME=y
++# USB mass storage support
++CONFIG_CMD_USB_MASS_STORAGE=y
++# Boot config
++CONFIG_BOOTSTD=y
++CONFIG_BOOTMETH_DISTRO=n
++CONFIG_BOOTMETH_DISTRO_PXE=n
++CONFIG_BOOTMETH_EFILOADER=y
++CONFIG_BOOTMETH_GLOBAL=n
++CONFIG_BOOTMETH_SCRIPT=n
++CONFIG_PXE_UTILS=n
++# Disable EFI bootmanager (reserves memory on 0x00080000 -> prevents continuing after being successful)
++# Enable Raspberry Pi 5 hardware support
++CONFIG_BCM2712=y
++CONFIG_BOARD_LATE_INIT=y
++CONFIG_BOARD_TYPES=y
++CONFIG_CPU_ARMV8=y
++CONFIG_MFD_RP1=y
++CONFIG_RP1_GPIO=y
++CONFIG_RESET_BRCMSTB=y
++CONFIG_RESET_BRCMSTB_RESCAL=y
++CONFIG_CLK=y
++CONFIG_CLK_RP1=y
++CONFIG_SYS_PCI_64BIT=y
++CONFIG_MACB=y
+--
+2.39.2
