@@ -13,6 +13,7 @@ index d9303e8c281..e7e47b1166d 100644
  menu "Broadcom BCM283X family"
  	depends on ARCH_BCM283X
  choice
+
 diff --git a/arch/arm/mach-bcm283x/init.c b/arch/arm/mach-bcm283x/init.c
 index 7a1de22e0ae..e72bd6af191 100644
 --- a/arch/arm/mach-bcm283x/init.c
@@ -49,6 +50,7 @@ index 7a1de22e0ae..e72bd6af191 100644
  	}, {
  		/* SoC bus */
  		.virt = 0x107c000000UL,
+
 diff --git a/board/raspberrypi/rpi/rpi.c b/board/raspberrypi/rpi/rpi.c
 index f9b643555dd..6b12361b526 100644
 --- a/board/raspberrypi/rpi/rpi.c
@@ -102,6 +104,7 @@ index f9b643555dd..6b12361b526 100644
  #if CONFIG_IS_ENABLED(GENERATE_ACPI_TABLE)
  static bool is_rpi4(void)
  {
+
 diff --git a/board/raspberrypi/rpi/rpi.env b/board/raspberrypi/rpi/rpi.env
 index 9ac9d6768ca..f879df109ac 100644
 --- a/board/raspberrypi/rpi/rpi.env
@@ -112,6 +115,7 @@ index 9ac9d6768ca..f879df109ac 100644
  
 -boot_targets=mmc usb pxe dhcp
 +boot_targets=mmc nvme usb pxe dhcp
+
 diff --git a/include/broadcom/bcm_board_types.h b/include/broadcom/bcm_board_types.h
 new file mode 100644
 index 00000000000..69db528874e

@@ -10,6 +10,7 @@ index 544e302d600..f60f0528351 100644
  	help
  	  The Cadence MACB ethernet interface is found on many Atmel
  	  AT91 and SAMA5 parts.  This driver also supports the Cadence
+
 diff --git a/drivers/net/macb.c b/drivers/net/macb.c
 index cbf5f605518..6272186bf50 100644
 --- a/drivers/net/macb.c
@@ -345,6 +346,7 @@ index cbf5f605518..6272186bf50 100644
  	return macb_late_eth_of_to_plat(dev);
  }
  
+
 diff --git a/drivers/net/macb.h b/drivers/net/macb.h
 index 0eb90574618..a8f4fc494a6 100644
 --- a/drivers/net/macb.h
@@ -379,6 +381,7 @@ index 0eb90574618..a8f4fc494a6 100644
  /* limit RX checksum offload to TCP and UDP packets */
  #define GEM_RX_CSUM_CHECKED_MASK		2
  #define gem_writel_queue_TBQP(port, value, queue_num)	\
+
 diff --git a/drivers/usb/host/xhci-brcm.c b/drivers/usb/host/xhci-brcm.c
 index 595839fac3c..63e7e5b1a25 100644
 --- a/drivers/usb/host/xhci-brcm.c

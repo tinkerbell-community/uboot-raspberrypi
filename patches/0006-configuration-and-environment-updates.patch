@@ -85,6 +85,7 @@ index 00000000000..151d7f986d4
 +CONFIG_NVME=y
 +CONFIG_NVME_PCI=y
 +CONFIG_MACB=y
+
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
 index 69e8e72c5d7..9e11a63486c 100644
 --- a/configs/rpi_arm64_defconfig

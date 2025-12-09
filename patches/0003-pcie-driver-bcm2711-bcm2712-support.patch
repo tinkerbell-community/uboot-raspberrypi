@@ -91,6 +91,7 @@ index a86875b1833..d49c9f59fb2 100644
  
  #define PCIE_MISC_HARD_PCIE_HARD_DEBUG_SERDES_IDDQ_MASK         0x08000000
  
+
 diff --git a/drivers/core/of_addr.c b/drivers/core/of_addr.c
 index 250dd175b55..823a4d70a6b 100644
 --- a/drivers/core/of_addr.c
@@ -116,6 +117,7 @@ index 250dd175b55..823a4d70a6b 100644
  	if (!OF_CHECK_COUNTS(pna, pns)) {
  		printf("Bad cell count for %s\n", of_node_full_name(parent));
  		ret = -EINVAL;
+
 diff --git a/drivers/pci/pci-uclass.c b/drivers/pci/pci-uclass.c
 index c370f8c6400..4092e8ff5a9 100644
 --- a/drivers/pci/pci-uclass.c
@@ -143,6 +145,7 @@ index c370f8c6400..4092e8ff5a9 100644
  
  	/* Extract the devfn from fdt_pci_addr */
  	pplat->devfn = pci_get_devfn(dev);
+
 diff --git a/drivers/pci/pcie_brcmstb.c b/drivers/pci/pcie_brcmstb.c
 index f089c48f028..96180e60045 100644
 --- a/drivers/pci/pcie_brcmstb.c
@@ -916,6 +919,7 @@ index f089c48f028..96180e60045 100644
  	{ }
  };
  
+
 diff --git a/include/pci_ids.h b/include/pci_ids.h
 index cfff275daba..6bc3abe4a93 100644
 --- a/include/pci_ids.h

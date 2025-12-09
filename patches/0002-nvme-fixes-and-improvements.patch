@@ -227,6 +227,7 @@ index 2b14437f69c..e3f447a0659 100644
  			ret = -EIO;
  			goto free_id;
  		}
+
 diff --git a/drivers/nvme/nvme.h b/drivers/nvme/nvme.h
 index bc1d612dde4..f52103c0095 100644
 --- a/drivers/nvme/nvme.h
@@ -253,6 +254,7 @@ index bc1d612dde4..f52103c0095 100644
 +}
 +
  #endif /* __DRIVER_NVME_H__ */
+
 diff --git a/drivers/nvme/nvme_show.c b/drivers/nvme/nvme_show.c
 index b06cb5c6d51..ad1a260f9ab 100644
 --- a/drivers/nvme/nvme_show.c
@@ -275,6 +277,7 @@ index b06cb5c6d51..ad1a260f9ab 100644
  		ret = -EIO;
  		goto free_id;
  	}
+
 diff --git a/include/nvme.h b/include/nvme.h
 index 2cdf8ce320c..8ff823cd81c 100644
 --- a/include/nvme.h
