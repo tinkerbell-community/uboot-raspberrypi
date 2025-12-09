@@ -33,9 +33,9 @@ index 70d3c35499b..3e08e255162 100644
  		model = &models[rev_type];
  	}
  
-+	if (IS_ENABLED(CONFIG_BOARD_TYPES)) {
-+		gd->board_type = rev_type;
-+	}
++#ifdef CONFIG_BOARD_TYPES
++	gd->board_type = rev_type;
++#endif
 +
  	printf("RPI %s (0x%x)\n", model->name, revision);
  }

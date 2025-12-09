@@ -42,7 +42,7 @@ index a86875b1833..cf354e33b8e 100644
  #define  MISC_CTRL_MAX_BURST_SIZE_MASK            0x300000
 -#define  MISC_CTRL_MAX_BURST_SIZE_128             0x0
 +#define  MISC_CTRL_MAX_BURST_SIZE_128(pcie)	\
-+	((pcie)->cfg->offsets[RGR1_SW_INIT_1])
++	((pcie)->cfg->offsets[MAX_BURST_SIZE_128])
  #define  MISC_CTRL_SCB0_SIZE_MASK                 0xf8000000
 +#define  MISC_CTRL_PCIE_RCB_MPS_MODE_MASK         0x400
  

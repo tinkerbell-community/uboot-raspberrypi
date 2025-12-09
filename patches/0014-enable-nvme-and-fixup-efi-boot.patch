@@ -5,11 +5,11 @@ Subject: [PATCH] rpi: enable NVMe and fixup EFI boot
 
 Signed-off-by: Tom Plant <tom@tplant.com.au>
 ---
- configs/rpi_arm64_defconfig | 29 +++++++++++++++++++++++++++-
- 1 file changed, 28 insertions(+), 1 deletion(-)
+ configs/rpi_arm64_defconfig | 32 +++++++++++++++++++++++++++-
+ 1 file changed, 31 insertions(+), 1 deletion(-)
 
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
-index 69e8e72c5d7..65aa391e094 100644
+index 69e8e72c5d7..9e11a63486c 100644
 --- a/configs/rpi_arm64_defconfig
 +++ b/configs/rpi_arm64_defconfig
 @@ -15,7 +15,7 @@ CONFIG_BOOTSTD_DEFAULTS=y
@@ -21,7 +21,7 @@ index 69e8e72c5d7..65aa391e094 100644
  CONFIG_SYS_PBSIZE=1049
  # CONFIG_DISPLAY_CPUINFO is not set
  # CONFIG_DISPLAY_BOARDINFO is not set
-@@ -65,3 +65,31 @@ CONFIG_VIDEO_BCM2835=y
+@@ -65,3 +65,34 @@ CONFIG_VIDEO_BCM2835=y
  CONFIG_CONSOLE_SCROLL_LINES=10
  CONFIG_PHYS_TO_BUS=y
  # CONFIG_HEXDUMP is not set
@@ -53,6 +53,9 @@ index 69e8e72c5d7..65aa391e094 100644
 +CONFIG_CLK_RP1=y
 +CONFIG_SYS_PCI_64BIT=y
 +CONFIG_MACB=y
++CONFIG_USB_XHCI_DWC3=y
++CONFIG_USB_DWC3=y
++CONFIG_USB_DWC3_GENERIC=y
 -- 
 2.39.2
 
