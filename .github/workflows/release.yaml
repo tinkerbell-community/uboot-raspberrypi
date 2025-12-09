@@ -41,7 +41,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0  # Required to get all tags
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -94,13 +94,13 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           path: src
 
       - name: Checkout u-boot
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: u-boot/u-boot
           fetch-depth: 1
@@ -154,7 +154,7 @@ jobs:
 
     steps:
       - name: Checkout u-boot
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: talos-rpi5/u-boot
           fetch-depth: 1
@@ -208,7 +208,7 @@ jobs:
 
     steps:
       - name: Checkout Raspberry Pi firmware
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: raspberrypi/firmware
           fetch-depth: 1
@@ -231,7 +231,7 @@ jobs:
     steps:
       - name: Checkout repository
         id: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: ipxe/ipxe
           ref: master
@@ -331,7 +331,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
