@@ -275,7 +275,7 @@ jobs:
           echo trying dhcp ( attempt \${count}/\${retry-max} )
           dhcp net\${idx} && goto done1 || iseq \${count} \${retry-max} && goto done1 || inc count && goto retry-loop1
           :done1
-          autoboot net\${idx} || exit
+          autoboot net\${idx} || exit 1
 
           :autoboot
           set retry-max:int32 10
@@ -284,7 +284,7 @@ jobs:
           echo trying dhcp ( attempt \${count}/\${retry-max} )
           dhcp && goto done2 || iseq \${count} \${retry-max} && goto done2 || inc count && goto retry-loop2
           :done2
-          autoboot || exit
+          autoboot || exit 1
           EOF
 
           # Create config file to enable TFTP
