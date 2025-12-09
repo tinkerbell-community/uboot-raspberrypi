@@ -183,6 +183,7 @@ jobs:
           echo "CONFIG_USB_XHCI_DWC3=y" >> .config
           echo "CONFIG_USB_DWC3=y" >> .config
           echo "CONFIG_USB_DWC3_GENERIC=y" >> .config
+          sed -i 's/CONFIG_CMD_BOOTEFI_BOOTMGR=y/CONFIG_CMD_BOOTEFI_BOOTMGR=n/' .config
 
       - name: Build U-Boot
         working-directory: u-boot-rpi5
