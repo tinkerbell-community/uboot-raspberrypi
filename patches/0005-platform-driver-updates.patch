@@ -57,7 +57,7 @@ index cbf5f605518..6272186bf50 100644
  };
  
  struct macb_usrio_cfg {
-@@ -270,47 +280,70 @@ int macb_miiphy_write(struct mii_dev *bus, int phy_adr, int devad, int reg,
+@@ -270,47 +280,78 @@ int macb_miiphy_write(struct mii_dev *bus, int phy_adr, int devad, int reg,
  
  	arch_get_mdio_control(bus->name);
  	macb_mdio_write(macb, phy_adr, reg, value);
@@ -68,6 +68,14 @@ index cbf5f605518..6272186bf50 100644
 +{
 +	struct udevice *dev = eth_get_dev_by_name(bus->name);
 +	struct macb_device *macb = dev_get_priv(dev);
++
++	/*
++	 * Apply PHY reset only for BCM2712 (RPi 5) where MACB is connected
++	 * via PCIe through RP1 chip and requires reset timing.
++	 */
++	if (!IS_ENABLED(CONFIG_BCM2712) ||
++	    gd_board_type() != BCM2712_RPI_5_B_NEW)
++		return 0;
 +
 +	if (!dm_gpio_is_valid(&macb->phy_reset_gpio))
 +		return 0;
@@ -296,7 +304,7 @@ index cbf5f605518..6272186bf50 100644
  
  	return 0;
  }
-@@ -1224,6 +1305,7 @@ static int macb_eth_probe(struct udevice *dev)
+@@ -1224,6 +1313,7 @@ static int macb_eth_probe(struct udevice *dev)
  	if (macb->phy_interface == PHY_INTERFACE_MODE_NA)
  		return -EINVAL;
  
