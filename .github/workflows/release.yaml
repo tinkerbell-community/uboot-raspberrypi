@@ -11,7 +11,7 @@ on:
       rpi_firmware_version:
         description: "Raspberry Pi firmware version"
         required: false
-        default: "next"
+        default: "1.20250915"
         type: string
   push:
     tags:
@@ -20,12 +20,7 @@ on:
 env:
   UBOOT_VERSION: ${{ inputs.uboot_version || 'v2026.01-rc4' }}
   UBOOT_DIR: ${{ github.workspace }}/u-boot
-  RPI_FIRMWARE_VERSION: ${{ inputs.rpi_firmware_version || 'next' }}
-  BUILD_DIR: ${{ github.workspace }}/build
-  FIRMWARE_DIR: ${{ github.workspace }}/firmware
-  MOUNT_DIR: ${{ github.workspace }}/mnt
-  SRC_DIR: ${{ github.workspace }}/src
-  OUT_DIR: ${{ github.workspace }}/out
+  RPI_FIRMWARE_VERSION: ${{ inputs.rpi_firmware_version || '1.20250915' }}
 
 jobs:
   determine-version:
@@ -83,6 +78,13 @@ jobs:
   build-uboot:
     needs: determine-version
     runs-on: ubuntu-24.04-arm
+    strategy:
+      matrix:
+        config:
+          - name: rpi_arm64
+            path: kernel8.img
+          - name: rpi_5
+            path: kernel_2712.img
     permissions:
       contents: read
 
@@ -110,12 +112,8 @@ jobs:
       - name: Configure U-Boot for Raspberry Pi 4 ARM64
         working-directory: u-boot
         run: |
-          for f in ../src/patches/*.patch; do
-            echo "Applying patch: $f"
-            patch -p1 < "$f"
-          done
-
-          make rpi_arm64_defconfig
+          patch -p1 < ${{ github.workspace }}/src/patches/${{ matrix.config.name }}.patch
+          make ${{ matrix.config.name }}_defconfig
 
           echo "CONFIG_SERVERIP_FROM_PROXYDHCP=y" >> .config
           echo "CONFIG_BOOTP_PXE_DHCP_OPTION=y" >> .config
@@ -123,7 +121,10 @@ jobs:
           echo "CONFIG_BOOTP_SUBNETMASK=y" >> .config
           echo "CONFIG_BOOTP_GATEWAY=y" >> .config
           echo "CONFIG_BOOTP_DNS=y" >> .config
+          echo "CONFIG_BOOTP_DNS2=y" >> .config
           echo "CONFIG_BOOTP_NTPSERVER=y" >> .config
+
+          mv u-boot.bin ${{ matrix.config.path }}
 
       - name: Build U-Boot
         working-directory: u-boot
@@ -134,8 +135,8 @@ jobs:
       - name: Upload U-Boot binary
         uses: actions/upload-artifact@v4
         with:
-          name: uboot-binary
-          path: u-boot/u-boot.bin
+          name: uboot-binary-${{ matrix.config.name }}
+          path: u-boot/${{ matrix.config.path }}
           retention-days: 1
           if-no-files-found: error
 
@@ -339,14 +340,15 @@ jobs:
           mkdir -p mnt
           mkdir -p out
 
+          # Copy U-Boot binaries
+          cp artifacts/uboot-*/*.img build/
+          ls -lah build/
+
           # Copy config file
           cp artifacts/config-files/config.txt build/
 
           # Copy firmware files
           cp -r artifacts/rpi-firmware/* build/
-
-          # Copy U-Boot binary
-          cp artifacts/uboot-binary/u-boot.bin build/
 
           # Copy iPXE binary
           mkdir -p build/EFI/BOOT
