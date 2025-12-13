@@ -112,7 +112,7 @@ jobs:
       - name: Configure U-Boot for Raspberry Pi 4 ARM64
         working-directory: u-boot
         run: |
-          patch -p1 < ${{ github.workspace }}/src/patches/${{ matrix.config.name }}.patch
+          patch -p1 < ${{ github.workspace }}/src/patches/${{ matrix.config.name }}_defconfig.patch
           make ${{ matrix.config.name }}_defconfig
 
           echo "CONFIG_SERVERIP_FROM_PROXYDHCP=y" >> .config
