@@ -3121,3 +3121,26 @@ index cfff275daba..6bc3abe4a93 100644
  #define PCI_VENDOR_ID_TEHUTI		0x1fc9
  #define PCI_DEVICE_ID_TEHUTI_3009	0x3009
  #define PCI_DEVICE_ID_TEHUTI_3010	0x3010
+diff --git a/dts/upstream/src/arm64/broadcom/bcm2712-rpi-5-b-u-boot.dtsi b/dts/upstream/src/arm64/broadcom/bcm2712-rpi-5-b-u-boot.dtsi
+new file mode 100644
+index 00000000000..38eec87271c
+--- /dev/null
++++ b/dts/upstream/src/arm64/broadcom/bcm2712-rpi-5-b-u-boot.dtsi
+@@ -0,0 +1,16 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * U-Boot configuration for Raspberry Pi 5 (BCM2712)
++ * This file prevents bcm283x-u-boot.dtsi from being included for BCM2712
++ */
++
++/ {
++	soc {
++		bootph-all;
++	};
++};
++
++/* The Debug UART on Pi 5 */
++&uart10 {
++	bootph-all;
++};
+
