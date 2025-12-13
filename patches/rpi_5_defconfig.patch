@@ -3143,4 +3143,16 @@ index 00000000000..38eec87271c
 +&uart10 {
 +	bootph-all;
 +};
+diff --git a/dts/upstream/src/arm64/broadcom/bcm283x-u-boot.dtsi b/dts/upstream/src/arm64/broadcom/bcm283x-u-boot.dtsi
+new file mode 100644
+index 00000000000..04bf206fe39
+--- /dev/null
++++ b/dts/upstream/src/arm64/broadcom/bcm283x-u-boot.dtsi
+@@ -0,0 +1,6 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * Empty stub for BCM2712 to prevent bcm283x-u-boot.dtsi from being used
++ * BCM2712 (Raspberry Pi 5) uses a different SoC architecture and doesn't
++ * have the same UART/GPIO labels as BCM283x (Pi 1-4).
++ */
 
