@@ -82,9 +82,9 @@ jobs:
       matrix:
         config:
           - name: rpi_arm64
-            path: kernel8.img
+            path: u-boot.bin
           - name: rpi_5
-            path: kernel_2712.img
+            path: u-boot-rpi5.bin
     permissions:
       contents: read
 
@@ -116,11 +116,7 @@ jobs:
           make ${{ matrix.config.name }}_defconfig
 
           echo "CONFIG_SERVERIP_FROM_PROXYDHCP=y" >> .config
-          echo "CONFIG_BOOTP_PXE_DHCP_OPTION=y" >> .config
           echo "CONFIG_BOOTP_SEND_HOSTNAME=y" >> .config
-          echo "CONFIG_BOOTP_SUBNETMASK=y" >> .config
-          echo "CONFIG_BOOTP_GATEWAY=y" >> .config
-          echo "CONFIG_BOOTP_DNS=y" >> .config
           echo "CONFIG_BOOTP_DNS2=y" >> .config
           echo "CONFIG_BOOTP_NTPSERVER=y" >> .config
 
@@ -129,6 +125,11 @@ jobs:
         run: |
           make -j $(nproc) HOSTLDLIBS_mkimage="-lssl -lcrypto"
           ls -la u-boot.bin
+
+      - name: Rename U-Boot
+        working-directory: u-boot
+        if: ${{ matrix.config.path != 'u-boot.bin' }}
+        run: |
           mv u-boot.bin ${{ matrix.config.path }}
           ls -la ${{ matrix.config.path }}
 
@@ -341,7 +342,7 @@ jobs:
           mkdir -p out
 
           # Copy U-Boot binaries
-          cp artifacts/uboot-*/*.img build/
+          cp artifacts/uboot-*/*.bin build/
           ls -lah build/
 
           # Copy config file

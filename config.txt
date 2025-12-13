@@ -6,7 +6,7 @@ gpu_mem=32
 hdmi_safe:0=1
 hdmi_safe:1=1
 # Load U-Boot.
-# kernel=u-boot.bin
+kernel=u-boot.bin
 # Forces the kernel loading system to assume a 64-bit kernel.
 arm_64bit=1
 # Run as fast as firmware / board allows.
@@ -18,5 +18,13 @@ dtoverlay=disable-bt
 # Disable Wireless Lan.
 dtoverlay=disable-wifi
 # Disable UART for Raspberry Pi 5 to avoid U-boot compatibility issue.
+
+[pi4]
+# Slightly higher GPU mem for HDMI init
+gpu_mem=64
+dtoverlay=vc4-kms-v3d-pi4,noaudio
+
 [pi5]
+kernel=u-boot-rpi5.bin
+# Disable console output for debugging
 enable_uart=0
