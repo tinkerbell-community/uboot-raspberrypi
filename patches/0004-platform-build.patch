@@ -1,0 +1,22 @@
+diff --git a/arch/arm/dts/Makefile b/arch/arm/dts/Makefile
+index fcad6fb2fc7..f6098771fc7 100644
+--- a/arch/arm/dts/Makefile
++++ b/arch/arm/dts/Makefile
+@@ -1028,7 +1028,8 @@ dtb-$(CONFIG_ARCH_BCM283X) += \
+ 	bcm2837-rpi-3-b.dtb \
+ 	bcm2837-rpi-3-b-plus.dtb \
+ 	bcm2837-rpi-cm3-io3.dtb \
+-	bcm2711-rpi-4-b.dtb
++	bcm2711-rpi-4-b.dtb \
++	bcm2712-rpi-5-b.dtb
+ 
+ dtb-$(CONFIG_TARGET_BCMNS) += ns-board.dtb
+ 
+diff --git a/dts/upstream/src/arm/broadcom/bcm2712-rpi-5-b.dts b/dts/upstream/src/arm/broadcom/bcm2712-rpi-5-b.dts
+new file mode 100644
+index 00000000000..5f85a3d57a7
+--- /dev/null
++++ b/dts/upstream/src/arm/broadcom/bcm2712-rpi-5-b.dts
+@@ -0,0 +1,2 @@
++// SPDX-License-Identifier: GPL-2.0
++#include "arm64/broadcom/bcm2712-rpi-5-b.dts"
