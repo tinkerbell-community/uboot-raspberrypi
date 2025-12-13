@@ -92,6 +92,10 @@ index f9b643555dd..6b12361b526 100644
 +	struct udevice *dev;
 +	int err;
 +
++	/* Only initialize RP1 on Raspberry Pi 5 */
++	if (gd_board_type() != BCM2712_RPI_5_B_NEW)
++		return 0;
++
 +	err = dm_pci_find_device(PCI_VENDOR_ID_RPI, PCI_DEVICE_ID_RP1_C0,
 +				 0, &dev);
 +	if (err)
@@ -100,7 +104,7 @@ index f9b643555dd..6b12361b526 100644
 +	return 0;
 +}
 +#endif
-+
+
  #if CONFIG_IS_ENABLED(GENERATE_ACPI_TABLE)
  static bool is_rpi4(void)
  {
