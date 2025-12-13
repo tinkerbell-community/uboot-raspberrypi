@@ -21,7 +21,7 @@ index 00000000000..5aaf9bb2cfa
 +};
 diff --git a/arch/arm/dts/bcm2712-rpi-5-b.dts b/arch/arm/dts/bcm2712-rpi-5-b.dts
 new file mode 100644
-index 00000000000..45c26e17d12
+index 00000000000..eb0a7fa75e8
 --- /dev/null
 +++ b/arch/arm/dts/bcm2712-rpi-5-b.dts
 @@ -0,0 +1,7 @@
@@ -31,4 +31,5 @@ index 00000000000..45c26e17d12
 + * This file includes the upstream device tree from dts/upstream
 + */
 +
-+#include "../../../dts/upstream/src/arm/broadcom/bcm2712-rpi-5-b.dts"
++#include "../../../dts/upstream/src/arm64/broadcom/bcm2712-rpi-5-b.dts"
+
