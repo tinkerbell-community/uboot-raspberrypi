@@ -197,10 +197,10 @@ index f9b643555dd..55541e157ec 100644
  {
 diff --git a/configs/rpi_5_defconfig b/configs/rpi_5_defconfig
 new file mode 100644
-index 00000000000..0c5a5b3fead
+index 00000000000..22b0e1fc271
 --- /dev/null
 +++ b/configs/rpi_5_defconfig
-@@ -0,0 +1,83 @@
+@@ -0,0 +1,82 @@
 +CONFIG_ARM=y
 +CONFIG_POSITION_INDEPENDENT=y
 +CONFIG_ARCH_BCM283X=y
@@ -216,7 +216,6 @@ index 00000000000..0c5a5b3fead
 +CONFIG_BOOTSTD_DEFAULTS=y
 +CONFIG_OF_BOARD_SETUP=y
 +CONFIG_OF_UPSTREAM=y
-+CONFIG_OF_UPSTREAM_INCLUDE_LOCAL_FALLBACK_DTBOS=y
 +CONFIG_FDT_SIMPLEFB=y
 +CONFIG_USE_PREBOOT=y
 +CONFIG_PREBOOT="pci enum; nvme scan; usb start; bootflow scan;"
