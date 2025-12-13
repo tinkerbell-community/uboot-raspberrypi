@@ -3143,16 +3143,41 @@ index 00000000000..38eec87271c
 +&uart10 {
 +	bootph-all;
 +};
-diff --git a/dts/upstream/src/arm64/broadcom/bcm283x-u-boot.dtsi b/dts/upstream/src/arm64/broadcom/bcm283x-u-boot.dtsi
-new file mode 100644
-index 00000000000..04bf206fe39
---- /dev/null
-+++ b/dts/upstream/src/arm64/broadcom/bcm283x-u-boot.dtsi
-@@ -0,0 +1,6 @@
-+// SPDX-License-Identifier: GPL-2.0+
-+/*
+diff --git a/arch/arm/dts/bcm283x-u-boot.dtsi b/arch/arm/dts/bcm283x-u-boot.dtsi
+index ec0f93dd850..04bf206fe39 100644
+--- a/arch/arm/dts/bcm283x-u-boot.dtsi
++++ b/arch/arm/dts/bcm283x-u-boot.dtsi
+@@ -1,29 +1,6 @@
+ // SPDX-License-Identifier: GPL-2.0+
+ /*
+- * U-Boot addition to keep baudrate set by firmware
+- * and also initialize before relocation.
+- *
+- * (C) Copyright 2016 Fabian Vogt <fvogt@suse.com>
 + * Empty stub for BCM2712 to prevent bcm283x-u-boot.dtsi from being used
 + * BCM2712 (Raspberry Pi 5) uses a different SoC architecture and doesn't
 + * have the same UART/GPIO labels as BCM283x (Pi 1-4).
-+ */
+  */
+-
+-&uart0 {
+-	skip-init;
+-	bootph-all;
+-};
+-
+-&uart1 {
+-	skip-init;
+-	bootph-all;
+-};
+-
+-&gpio {
+-	bootph-all;
+-};
+-
+-&uart0_gpio14 {
+-	bootph-all;
+-};
+-
+-&uart1_gpio14 {
+-	bootph-all;
+-};
 
