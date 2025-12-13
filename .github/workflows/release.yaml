@@ -11,7 +11,7 @@ on:
       rpi_firmware_version:
         description: "Raspberry Pi firmware version"
         required: false
-        default: "1.20250915"
+        default: "next"
         type: string
   push:
     tags:
@@ -20,7 +20,7 @@ on:
 env:
   UBOOT_VERSION: ${{ inputs.uboot_version || 'v2026.01-rc4' }}
   UBOOT_DIR: ${{ github.workspace }}/u-boot
-  RPI_FIRMWARE_VERSION: ${{ inputs.rpi_firmware_version || '1.20250915' }}
+  RPI_FIRMWARE_VERSION: ${{ inputs.rpi_firmware_version || 'next' }}
   BUILD_DIR: ${{ github.workspace }}/build
   FIRMWARE_DIR: ${{ github.workspace }}/firmware
   MOUNT_DIR: ${{ github.workspace }}/mnt
@@ -117,7 +117,6 @@ jobs:
 
           make rpi_arm64_defconfig
 
-          echo "CONFIG_PREBOOT=\"pci enum; nvme scan; usb start; bootflow scan; setenv localcmd 'setenv boot_targets \\\"mmc nvme usb pxe dhcp\\\"; bootflow scan -lb'\"" >> .config
           echo "CONFIG_SERVERIP_FROM_PROXYDHCP=y" >> .config
           echo "CONFIG_BOOTP_PXE_DHCP_OPTION=y" >> .config
           echo "CONFIG_BOOTP_SEND_HOSTNAME=y" >> .config
