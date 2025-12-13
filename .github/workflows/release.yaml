@@ -124,13 +124,13 @@ jobs:
           echo "CONFIG_BOOTP_DNS2=y" >> .config
           echo "CONFIG_BOOTP_NTPSERVER=y" >> .config
 
-          mv u-boot.bin ${{ matrix.config.path }}
-
       - name: Build U-Boot
         working-directory: u-boot
         run: |
           make -j $(nproc) HOSTLDLIBS_mkimage="-lssl -lcrypto"
           ls -la u-boot.bin
+          mv u-boot.bin ${{ matrix.config.path }}
+          ls -la ${{ matrix.config.path }}
 
       - name: Upload U-Boot binary
         uses: actions/upload-artifact@v4
