@@ -1,0 +1,932 @@
+diff --git a/board/raspberrypi/rpi/rpi.env b/board/raspberrypi/rpi/rpi.env
+index 9ac9d6768ca..f879df109ac 100644
+--- a/board/raspberrypi/rpi/rpi.env
++++ b/board/raspberrypi/rpi/rpi.env
+@@ -77,4 +77,4 @@ pxefile_addr_r=0x05500000
+ fdt_addr_r=0x05600000
+ ramdisk_addr_r=0x05700000
+ 
+-boot_targets=mmc usb pxe dhcp
++boot_targets=mmc nvme usb pxe dhcp
+diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
+index 69e8e72c5d7..d1092907732 100644
+--- a/configs/rpi_arm64_defconfig
++++ b/configs/rpi_arm64_defconfig
+@@ -4,7 +4,7 @@ CONFIG_ARCH_BCM283X=y
+ CONFIG_TARGET_RPI_ARM64=y
+ CONFIG_NR_DRAM_BANKS=8
+ CONFIG_ENV_SIZE=0x4000
+-CONFIG_DEFAULT_DEVICE_TREE="bcm2711-rpi-4-b"
++CONFIG_DEFAULT_DEVICE_TREE="bcm2712-rpi-5-b"
+ CONFIG_OF_LIBFDT_OVERLAY=y
+ CONFIG_DM_RESET=y
+ CONFIG_SYS_LOAD_ADDR=0x1000000
+@@ -65,3 +65,19 @@ CONFIG_VIDEO_BCM2835=y
+ CONFIG_CONSOLE_SCROLL_LINES=10
+ CONFIG_PHYS_TO_BUS=y
+ # CONFIG_HEXDUMP is not set
++# Enable NVME
++CONFIG_NVME_PCI=y
++CONFIG_CMD_NVME=y
++CONFIG_NVME=y
++# USB mass storage support
++CONFIG_CMD_USB_MASS_STORAGE=y
++# Boot config
++CONFIG_BOOTSTD=y
++CONFIG_BOOTMETH_DISTRO=n
++CONFIG_BOOTMETH_DISTRO_PXE=n
++CONFIG_BOOTMETH_EFILOADER=y
++CONFIG_BOOTMETH_GLOBAL=n
++CONFIG_BOOTMETH_SCRIPT=n
++CONFIG_PXE_UTILS=n
++# Disable EFI bootmanager (reserves memory on 0x00080000 -> prevents continuing after being successful)
++CONFIG_CMD_BOOTEFI_BOOTMGR=n
+diff --git a/drivers/nvme/nvme.c b/drivers/nvme/nvme.c
+index 2b14437f69c..e3f447a0659 100644
+--- a/drivers/nvme/nvme.c
++++ b/drivers/nvme/nvme.c
+@@ -45,14 +45,14 @@ static int nvme_wait_csts(struct nvme_dev *dev, u32 mask, u32 val)
+ }
+ 
+ static int nvme_setup_prps(struct nvme_dev *dev, u64 *prp2,
+-			   int total_len, u64 dma_addr)
++			   int total_len, void *buffer)
+ {
+-	u32 page_size = dev->page_size;
+-	int offset = dma_addr & (page_size - 1);
++	const u32 page_size = dev->page_size;
++	const u32 prps_per_page = (page_size >> 3) - 1;
++	int offset = (uintptr_t)buffer & (page_size - 1);
+ 	u64 *prp_pool;
+ 	int length = total_len;
+ 	int i, nprps;
+-	u32 prps_per_page = page_size >> 3;
+ 	u32 num_pages;
+ 
+ 	length -= (page_size - offset);
+@@ -63,10 +63,10 @@ static int nvme_setup_prps(struct nvme_dev *dev, u64 *prp2,
+ 	}
+ 
+ 	if (length)
+-		dma_addr += (page_size - offset);
++		buffer += (page_size - offset);
+ 
+ 	if (length <= page_size) {
+-		*prp2 = dma_addr;
++		*prp2 = nvme_virt_to_bus(dev, buffer);
+ 		return 0;
+ 	}
+ 
+@@ -91,16 +91,16 @@ static int nvme_setup_prps(struct nvme_dev *dev, u64 *prp2,
+ 	i = 0;
+ 	while (nprps) {
+ 		if ((i == (prps_per_page - 1)) && nprps > 1) {
+-			*(prp_pool + i) = cpu_to_le64((ulong)prp_pool +
+-					page_size);
++			u64 next = nvme_virt_to_bus(dev, prp_pool + page_size);
++			*(prp_pool + i) = cpu_to_le64(next);
+ 			i = 0;
+ 			prp_pool += page_size;
+ 		}
+-		*(prp_pool + i++) = cpu_to_le64(dma_addr);
+-		dma_addr += page_size;
++		*(prp_pool + i++) = cpu_to_le64(nvme_virt_to_bus(dev, buffer));
++		buffer += page_size;
+ 		nprps--;
+ 	}
+-	*prp2 = (ulong)dev->prp_pool;
++	*prp2 = nvme_virt_to_bus(dev, dev->prp_pool);
+ 
+ 	flush_dcache_range((ulong)dev->prp_pool, (ulong)dev->prp_pool +
+ 			   num_pages * page_size);
+@@ -353,6 +353,7 @@ static int nvme_configure_admin_queue(struct nvme_dev *dev)
+ 	int result;
+ 	u32 aqa;
+ 	u64 cap = dev->cap;
++	u64 dma_addr;
+ 	struct nvme_queue *nvmeq;
+ 	/* most architectures use 4KB as the page size */
+ 	unsigned page_shift = 12;
+@@ -393,8 +394,10 @@ static int nvme_configure_admin_queue(struct nvme_dev *dev)
+ 	dev->ctrl_config |= NVME_CC_IOSQES | NVME_CC_IOCQES;
+ 
+ 	writel(aqa, &dev->bar->aqa);
+-	nvme_writeq((ulong)nvmeq->sq_cmds, &dev->bar->asq);
+-	nvme_writeq((ulong)nvmeq->cqes, &dev->bar->acq);
++	dma_addr = nvme_virt_to_bus(dev, nvmeq->sq_cmds);
++	nvme_writeq(dma_addr, &dev->bar->asq);
++	dma_addr = nvme_virt_to_bus(dev, nvmeq->cqes);
++	nvme_writeq(dma_addr, &dev->bar->acq);
+ 
+ 	result = nvme_enable_ctrl(dev);
+ 	if (result)
+@@ -420,7 +423,7 @@ static int nvme_alloc_cq(struct nvme_dev *dev, u16 qid,
+ 
+ 	memset(&c, 0, sizeof(c));
+ 	c.create_cq.opcode = nvme_admin_create_cq;
+-	c.create_cq.prp1 = cpu_to_le64((ulong)nvmeq->cqes);
++	c.create_cq.prp1 = cpu_to_le64(nvme_virt_to_bus(dev, nvmeq->cqes));
+ 	c.create_cq.cqid = cpu_to_le16(qid);
+ 	c.create_cq.qsize = cpu_to_le16(nvmeq->q_depth - 1);
+ 	c.create_cq.cq_flags = cpu_to_le16(flags);
+@@ -437,7 +440,7 @@ static int nvme_alloc_sq(struct nvme_dev *dev, u16 qid,
+ 
+ 	memset(&c, 0, sizeof(c));
+ 	c.create_sq.opcode = nvme_admin_create_sq;
+-	c.create_sq.prp1 = cpu_to_le64((ulong)nvmeq->sq_cmds);
++	c.create_sq.prp1 = cpu_to_le64(nvme_virt_to_bus(dev, nvmeq->sq_cmds));
+ 	c.create_sq.sqid = cpu_to_le16(qid);
+ 	c.create_sq.qsize = cpu_to_le16(nvmeq->q_depth - 1);
+ 	c.create_sq.sq_flags = cpu_to_le16(flags);
+@@ -447,42 +450,42 @@ static int nvme_alloc_sq(struct nvme_dev *dev, u16 qid,
+ }
+ 
+ int nvme_identify(struct nvme_dev *dev, unsigned nsid,
+-		  unsigned cns, dma_addr_t dma_addr)
++		  unsigned int cns, void *buffer)
+ {
+ 	struct nvme_command c;
+ 	u32 page_size = dev->page_size;
+-	int offset = dma_addr & (page_size - 1);
++	int offset = (uintptr_t)buffer & (page_size - 1);
+ 	int length = sizeof(struct nvme_id_ctrl);
+ 	int ret;
+ 
+ 	memset(&c, 0, sizeof(c));
+ 	c.identify.opcode = nvme_admin_identify;
+ 	c.identify.nsid = cpu_to_le32(nsid);
+-	c.identify.prp1 = cpu_to_le64(dma_addr);
++	c.identify.prp1 = cpu_to_le64(nvme_virt_to_bus(dev, buffer));
+ 
+ 	length -= (page_size - offset);
+ 	if (length <= 0) {
+ 		c.identify.prp2 = 0;
+ 	} else {
+-		dma_addr += (page_size - offset);
+-		c.identify.prp2 = cpu_to_le64(dma_addr);
++		buffer += (page_size - offset);
++		c.identify.prp2 = cpu_to_le64(nvme_virt_to_bus(dev, buffer));
+ 	}
+ 
+ 	c.identify.cns = cpu_to_le32(cns);
+ 
+-	invalidate_dcache_range(dma_addr,
+-				dma_addr + sizeof(struct nvme_id_ctrl));
++	invalidate_dcache_range((uintptr_t)buffer,
++				(uintptr_t)buffer + sizeof(struct nvme_id_ctrl));
+ 
+ 	ret = nvme_submit_admin_cmd(dev, &c, NULL);
+ 	if (!ret)
+-		invalidate_dcache_range(dma_addr,
+-					dma_addr + sizeof(struct nvme_id_ctrl));
++		invalidate_dcache_range((uintptr_t)buffer,
++					(uintptr_t)buffer + sizeof(struct nvme_id_ctrl));
+ 
+ 	return ret;
+ }
+ 
+ int nvme_get_features(struct nvme_dev *dev, unsigned fid, unsigned nsid,
+-		      dma_addr_t dma_addr, u32 *result)
++		      void *buffer, u32 *result)
+ {
+ 	struct nvme_command c;
+ 	int ret;
+@@ -490,7 +493,7 @@ int nvme_get_features(struct nvme_dev *dev, unsigned fid, unsigned nsid,
+ 	memset(&c, 0, sizeof(c));
+ 	c.features.opcode = nvme_admin_get_features;
+ 	c.features.nsid = cpu_to_le32(nsid);
+-	c.features.prp1 = cpu_to_le64(dma_addr);
++	c.features.prp1 = cpu_to_le64(nvme_virt_to_bus(dev, buffer));
+ 	c.features.fid = cpu_to_le32(fid);
+ 
+ 	ret = nvme_submit_admin_cmd(dev, &c, result);
+@@ -510,13 +513,13 @@ int nvme_get_features(struct nvme_dev *dev, unsigned fid, unsigned nsid,
+ }
+ 
+ int nvme_set_features(struct nvme_dev *dev, unsigned fid, unsigned dword11,
+-		      dma_addr_t dma_addr, u32 *result)
++		      void *buffer, u32 *result)
+ {
+ 	struct nvme_command c;
+ 
+ 	memset(&c, 0, sizeof(c));
+ 	c.features.opcode = nvme_admin_set_features;
+-	c.features.prp1 = cpu_to_le64(dma_addr);
++	c.features.prp1 = cpu_to_le64(nvme_virt_to_bus(dev, buffer));
+ 	c.features.fid = cpu_to_le32(fid);
+ 	c.features.dword11 = cpu_to_le32(dword11);
+ 
+@@ -567,7 +570,7 @@ static int nvme_set_queue_count(struct nvme_dev *dev, int count)
+ 	u32 q_count = (count - 1) | ((count - 1) << 16);
+ 
+ 	status = nvme_set_features(dev, NVME_FEAT_NUM_QUEUES,
+-			q_count, 0, &result);
++			q_count, NULL, &result);
+ 
+ 	if (status < 0)
+ 		return status;
+@@ -628,7 +631,7 @@ static int nvme_get_info_from_identify(struct nvme_dev *dev)
+ 	if (!ctrl)
+ 		return -ENOMEM;
+ 
+-	ret = nvme_identify(dev, 0, 1, (dma_addr_t)(long)ctrl);
++	ret = nvme_identify(dev, 0, 1, ctrl);
+ 	if (ret) {
+ 		free(ctrl);
+ 		return -EIO;
+@@ -718,7 +721,7 @@ static int nvme_blk_probe(struct udevice *udev)
+ 	ns->dev = ndev;
+ 	/* extract the namespace id from the block device name */
+ 	ns->ns_id = trailing_strtol(udev->name);
+-	if (nvme_identify(ndev, ns->ns_id, 0, (dma_addr_t)(long)id)) {
++	if (nvme_identify(ndev, ns->ns_id, 0, id)) {
+ 		free(id);
+ 		return -EIO;
+ 	}
+@@ -752,7 +755,7 @@ static ulong nvme_blk_rw(struct udevice *udev, lbaint_t blknr,
+ 	u64 prp2;
+ 	u64 total_len = blkcnt << desc->log2blksz;
+ 	u64 temp_len = total_len;
+-	uintptr_t temp_buffer = (uintptr_t)buffer;
++	void *temp_buffer = buffer;
+ 
+ 	u64 slba = blknr;
+ 	u16 lbas = 1 << (dev->max_transfer_shift - ns->lba_shift);
+@@ -785,7 +788,7 @@ static ulong nvme_blk_rw(struct udevice *udev, lbaint_t blknr,
+ 		c.rw.slba = cpu_to_le64(slba);
+ 		slba += lbas;
+ 		c.rw.length = cpu_to_le16(lbas - 1);
+-		c.rw.prp1 = cpu_to_le64(temp_buffer);
++		c.rw.prp1 = cpu_to_le64(nvme_virt_to_bus(dev, temp_buffer));
+ 		c.rw.prp2 = cpu_to_le64(prp2);
+ 		status = nvme_submit_sync_cmd(dev->queues[NVME_IO_Q],
+ 				&c, NULL, IO_TIMEOUT);
+@@ -890,7 +893,7 @@ int nvme_init(struct udevice *udev)
+ 		char name[20];
+ 
+ 		memset(id, 0, sizeof(*id));
+-		if (nvme_identify(ndev, i, 0, (dma_addr_t)(long)id)) {
++		if (nvme_identify(ndev, i, 0, id)) {
+ 			ret = -EIO;
+ 			goto free_id;
+ 		}
+diff --git a/drivers/nvme/nvme.h b/drivers/nvme/nvme.h
+index bc1d612dde4..f52103c0095 100644
+--- a/drivers/nvme/nvme.h
++++ b/drivers/nvme/nvme.h
+@@ -7,8 +7,11 @@
+ #ifndef __DRIVER_NVME_H__
+ #define __DRIVER_NVME_H__
+ 
++#include <phys2bus.h>
+ #include <asm/io.h>
+ 
++#define nvme_to_dev(_dev)	_dev->udev
++
+ struct nvme_id_power_state {
+ 	__le16			max_power;	/* centiwatts */
+ 	__u8			rsvd2;
+@@ -705,4 +708,9 @@ int nvme_init(struct udevice *udev);
+  */
+ int nvme_shutdown(struct udevice *udev);
+ 
++static inline dma_addr_t nvme_virt_to_bus(struct nvme_dev *dev, void *addr)
++{
++	return dev_phys_to_bus(nvme_to_dev(dev)->parent, virt_to_phys(addr));
++}
++
+ #endif /* __DRIVER_NVME_H__ */
+diff --git a/drivers/nvme/nvme_show.c b/drivers/nvme/nvme_show.c
+index b06cb5c6d51..ad1a260f9ab 100644
+--- a/drivers/nvme/nvme_show.c
++++ b/drivers/nvme/nvme_show.c
+@@ -113,7 +113,7 @@ int nvme_print_info(struct udevice *udev)
+ 	if (!ctrl)
+ 		return -ENOMEM;
+ 
+-	if (nvme_identify(dev, 0, 1, (dma_addr_t)(long)ctrl)) {
++	if (nvme_identify(dev, 0, 1, ctrl)) {
+ 		ret = -EIO;
+ 		goto free_ctrl;
+ 	}
+@@ -128,7 +128,7 @@ int nvme_print_info(struct udevice *udev)
+ 		goto free_ctrl;
+ 	}
+ 
+-	if (nvme_identify(dev, ns->ns_id, 0, (dma_addr_t)(long)id)) {
++	if (nvme_identify(dev, ns->ns_id, 0, id)) {
+ 		ret = -EIO;
+ 		goto free_id;
+ 	}
+diff --git a/drivers/usb/host/xhci-brcm.c b/drivers/usb/host/xhci-brcm.c
+index 595839fac3c..63e7e5b1a25 100644
+--- a/drivers/usb/host/xhci-brcm.c
++++ b/drivers/usb/host/xhci-brcm.c
+@@ -81,7 +81,7 @@ static int xhci_brcm_deregister(struct udevice *dev)
+ }
+ 
+ static const struct udevice_id xhci_brcm_ids[] = {
+-	{ .compatible = "brcm,generic-xhci" },
++	{ .compatible = "generic-xhci" },
+ 	{ }
+ };
+ 
+diff --git a/dts/upstream/src/arm64/broadcom/bcm2712-d-rpi-5-b.dts b/dts/upstream/src/arm/broadcom/bcm2712-d-rpi-5-b.dts
+similarity index 100%
+rename from dts/upstream/src/arm64/broadcom/bcm2712-d-rpi-5-b.dts
+rename to dts/upstream/src/arm/broadcom/bcm2712-d-rpi-5-b.dts
+diff --git a/dts/upstream/src/arm/broadcom/bcm2712-rpi-5-b-ovl-rp1.dts b/dts/upstream/src/arm/broadcom/bcm2712-rpi-5-b-ovl-rp1.dts
+new file mode 100644
+index 00000000000..04738bf281e
+--- /dev/null
++++ b/dts/upstream/src/arm/broadcom/bcm2712-rpi-5-b-ovl-rp1.dts
+@@ -0,0 +1,254 @@
++// SPDX-License-Identifier: (GPL-2.0 OR MIT)
++/dts-v1/;
++
++#include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/input/input.h>
++#include "bcm2712.dtsi"
++
++/ {
++	compatible = "raspberrypi,5-model-b", "brcm,bcm2712";
++	model = "Raspberry Pi 5";
++
++	aliases {
++		serial10 = &uart10;
++	};
++
++	chosen: chosen {
++		stdout-path = "serial10:115200n8";
++	};
++
++	clk_rp1_xosc: clock-50000000 {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-output-names = "rp1-xosc";
++		clock-frequency = <50000000>;
++	};
++
++	/* Will be filled by the bootloader */
++	memory@0 {
++		device_type = "memory";
++		reg = <0 0 0 0x28000000>;
++	};
++
++	gpio-keys {
++		compatible = "gpio-keys";
++		pinctrl-names = "default";
++		pinctrl-0 = <&pwr_button_default>;
++		status = "okay";
++
++		power_button: power-button {
++			label = "pwr_button";
++			linux,code = <KEY_POWER>;
++			gpios = <&gio 20 GPIO_ACTIVE_LOW>;
++			debounce-interval = <50>;
++		};
++	};
++
++	sd_io_1v8_reg: sd-io-1v8-reg {
++		compatible = "regulator-gpio";
++		regulator-name = "vdd-sd-io";
++		regulator-min-microvolt = <1800000>;
++		regulator-max-microvolt = <3300000>;
++		regulator-boot-on;
++		regulator-always-on;
++		regulator-settling-time-us = <5000>;
++		gpios = <&gio_aon 3 GPIO_ACTIVE_HIGH>;
++		states = <1800000 1>,
++			 <3300000 0>;
++	};
++
++	sd_vcc_reg: sd-vcc-reg {
++		compatible = "regulator-fixed";
++		regulator-name = "vcc-sd";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		regulator-boot-on;
++		enable-active-high;
++		gpios = <&gio_aon 4 GPIO_ACTIVE_HIGH>;
++	};
++
++	wl_on_reg: wl-on-reg {
++		compatible = "regulator-fixed";
++		regulator-name = "wl-on-regulator";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		pinctrl-0 = <&wl_on_default>;
++		pinctrl-names = "default";
++		gpio = <&gio 28 GPIO_ACTIVE_HIGH>;
++		startup-delay-us = <150000>;
++		enable-active-high;
++	};
++};
++
++&pinctrl {
++	bt_shutdown_default: bt-shutdown-default-state {
++		function = "gpio";
++		pins = "gpio29";
++	};
++
++	emmc_sd_default: emmc-sd-default-state {
++		pins = "emmc_cmd", "emmc_dat0", "emmc_dat1", "emmc_dat2", "emmc_dat3";
++		bias-pull-up;
++	};
++
++	pwr_button_default: pwr-button-default-state {
++		function = "gpio";
++		pins = "gpio20";
++		bias-pull-up;
++	};
++
++	sdio2_30_default: sdio2-30-default-state {
++		clk-pins {
++			function = "sd2";
++			pins = "gpio30";
++			bias-disable;
++		};
++		cmd-pins {
++			function = "sd2";
++			pins = "gpio31";
++			bias-pull-up;
++		};
++		dat-pins {
++			function = "sd2";
++			pins = "gpio32", "gpio33", "gpio34", "gpio35";
++			bias-pull-up;
++		};
++	};
++
++	uarta_24_default: uarta-24-default-state {
++		rts-pins {
++			function = "uart0";
++			pins = "gpio24";
++			bias-disable;
++		};
++		cts-pins {
++			function = "uart0";
++			pins = "gpio25";
++			bias-pull-up;
++		};
++		txd-pins {
++			function = "uart0";
++			pins = "gpio26";
++			bias-disable;
++		};
++		rxd-pins {
++			function = "uart0";
++			pins = "gpio27";
++			bias-pull-up;
++		};
++	};
++
++	wl_on_default: wl-on-default-state {
++		function = "gpio";
++		pins = "gpio28";
++	};
++};
++
++&pinctrl_aon {
++	emmc_aon_cd_default: emmc-aon-cd-default-state {
++		function = "sd_card_g";
++		pins = "aon_gpio5";
++		bias-pull-up;
++	};
++};
++
++/* The Debug UART, on Rpi5 it's on JST-SH 1.0mm 3-pin connector
++ * labeled "UART", i.e. the interface with the system console.
++ */
++&uart10 {
++	status = "okay";
++};
++
++/* SDIO1 is used to drive the SD card */
++&sdio1 {
++	pinctrl-0 = <&emmc_sd_default>, <&emmc_aon_cd_default>;
++	pinctrl-names = "default";
++	vqmmc-supply = <&sd_io_1v8_reg>;
++	vmmc-supply = <&sd_vcc_reg>;
++	bus-width = <4>;
++	sd-uhs-sdr50;
++	sd-uhs-ddr50;
++	sd-uhs-sdr104;
++	cd-gpios = <&gio_aon 5 GPIO_ACTIVE_LOW>;
++};
++
++&sdio2 {
++	pinctrl-0 = <&sdio2_30_default>;
++	pinctrl-names = "default";
++	bus-width = <4>;
++	vmmc-supply = <&wl_on_reg>;
++	sd-uhs-ddr50;
++	non-removable;
++	status = "okay";
++	#address-cells = <1>;
++	#size-cells = <0>;
++
++	wifi: wifi@1 {
++		reg = <1>;
++		compatible = "brcm,bcm4329-fmac";
++	};
++};
++
++&soc {
++	firmware: firmware {
++		compatible = "raspberrypi,bcm2835-firmware", "simple-mfd";
++		#address-cells = <1>;
++		#size-cells = <1>;
++
++		mboxes = <&mailbox>;
++		dma-ranges;
++
++		firmware_clocks: clocks {
++			compatible = "raspberrypi,firmware-clocks";
++			#clock-cells = <1>;
++		};
++
++		reset: reset {
++			compatible = "raspberrypi,firmware-reset";
++			#reset-cells = <1>;
++		};
++	};
++
++	power: power {
++		compatible = "raspberrypi,bcm2835-power";
++		firmware = <&firmware>;
++		#power-domain-cells = <1>;
++	};
++};
++
++/* uarta communicates with the BT module */
++&uarta {
++	uart-has-rtscts;
++	pinctrl-0 = <&uarta_24_default &bt_shutdown_default>;
++	pinctrl-names = "default";
++	status = "okay";
++
++	bluetooth: bluetooth {
++		compatible = "brcm,bcm43438-bt";
++		max-speed = <3000000>;
++		shutdown-gpios = <&gio 29 GPIO_ACTIVE_HIGH>;
++	};
++};
++
++&hvs {
++	clocks = <&firmware_clocks 4>, <&firmware_clocks 16>;
++	clock-names = "core", "disp";
++};
++
++&hdmi0 {
++	clocks = <&firmware_clocks 13>, <&firmware_clocks 14>, <&dvp 0>, <&clk_27MHz>;
++	clock-names = "hdmi", "bvb", "audio", "cec";
++};
++
++&hdmi1 {
++	clocks = <&firmware_clocks 13>, <&firmware_clocks 14>, <&dvp 1>, <&clk_27MHz>;
++	clock-names = "hdmi", "bvb", "audio", "cec";
++};
++
++&pcie1 {
++	status = "okay";
++};
++
++&pcie2 {
++	status = "okay";
++};
+diff --git a/dts/upstream/src/arm64/broadcom/bcm2712.dtsi b/dts/upstream/src/arm/broadcom/bcm2712.dtsi
+similarity index 92%
+rename from dts/upstream/src/arm64/broadcom/bcm2712.dtsi
+rename to dts/upstream/src/arm/broadcom/bcm2712.dtsi
+index 0a9212d3106..205b87f557d 100644
+--- a/dts/upstream/src/arm64/broadcom/bcm2712.dtsi
++++ b/dts/upstream/src/arm/broadcom/bcm2712.dtsi
+@@ -38,6 +38,13 @@
+ 			clock-frequency = <200000000>;
+ 			clock-output-names = "emmc2-clock";
+ 		};
++
++		clk_sw_baud: clk-sw-baud {
++			compatible = "fixed-clock";
++			#clock-cells = <0>;
++			clock-frequency = <96000000>;
++			clock-output-names = "sw-baud";
++		};
+ 	};
+ 
+ 	cpus: cpus {
+@@ -243,6 +250,39 @@
+ 			status = "disabled";
+ 		};
+ 
++		pinctrl: pinctrl@7d504100 {
++			compatible = "brcm,bcm2712c0-pinctrl";
++			reg = <0x7d504100 0x30>;
++		};
++
++		gio: gpio@7d508500 {
++			compatible = "brcm,bcm7445-gpio", "brcm,brcmstb-gpio";
++			reg = <0x7d508500 0x40>;
++			interrupt-parent = <&main_irq>;
++			interrupts = <0>;
++			gpio-controller;
++			#gpio-cells = <2>;
++			interrupt-controller;
++			#interrupt-cells = <2>;
++			brcm,gpio-bank-widths = <32 22>;
++		};
++
++		uarta: serial@7d50c000 {
++			compatible = "brcm,bcm7271-uart";
++			reg = <0x7d50c000 0x20>;
++			reg-names = "uart";
++			clocks = <&clk_sw_baud>;
++			clock-names = "sw_baud";
++			interrupts = <GIC_SPI 276 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-names = "uart";
++			status = "disabled";
++		};
++
++		pinctrl_aon: pinctrl@7d510700 {
++			compatible = "brcm,bcm2712c0-aon-pinctrl";
++			reg = <0x7d510700 0x20>;
++		};
++
+ 		interrupt-controller@7d517000 {
+ 			compatible = "brcm,bcm7271-l2-intc";
+ 			reg = <0x7d517000 0x10>;
+@@ -263,6 +303,21 @@
+ 			 */
+ 		};
+ 
++		sdio2: mmc@1100000 {
++			compatible = "brcm,bcm2712-sdhci",
++				     "brcm,sdhci-brcmstb";
++			reg = <0x01100000  0x260>,
++			      <0x01100400  0x200>;
++			reg-names = "host", "cfg";
++			interrupts = <GIC_SPI 274 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&clk_emmc2>;
++			clock-names = "sw_sdio";
++			sdhci-caps-mask = <0x0000C000 0x0>;
++			sdhci-caps = <0x0 0x0>;
++			mmc-ddr-3_3v;
++			status = "disabled";
++		};
++
+ 		gicv2: interrupt-controller@7fff9000 {
+ 			compatible = "arm,gic-400";
+ 			reg = <0x7fff9000 0x1000>,
+@@ -270,6 +325,9 @@
+ 			      <0x7fffc000 0x2000>,
+ 			      <0x7fffe000 0x2000>;
+ 			interrupt-controller;
++			#address-cells = <0>;
++			interrupts = <GIC_PPI 9 (GIC_CPU_MASK_SIMPLE(4) |
++					IRQ_TYPE_LEVEL_HIGH)>;
+ 			#interrupt-cells = <3>;
+ 		};
+ 
+diff --git a/dts/upstream/src/arm64/broadcom/rp1-common.dtsi b/dts/upstream/src/arm/broadcom/rp1-common.dtsi
+similarity index 52%
+rename from dts/upstream/src/arm64/broadcom/rp1-common.dtsi
+rename to dts/upstream/src/arm/broadcom/rp1-common.dtsi
+index 5002a375eb0..5a815c37979 100644
+--- a/dts/upstream/src/arm64/broadcom/rp1-common.dtsi
++++ b/dts/upstream/src/arm/broadcom/rp1-common.dtsi
+@@ -39,4 +39,48 @@ pci_ep_bus: pci-ep-bus@1 {
+ 			     <1 IRQ_TYPE_LEVEL_HIGH>,
+ 			     <2 IRQ_TYPE_LEVEL_HIGH>;
+ 	};
++
++	rp1_eth: ethernet@40100000 {
++		compatible = "raspberrypi,rp1-gem";
++		reg = <0x00 0x40100000  0x0 0x4000>;
++		interrupts = <6 IRQ_TYPE_LEVEL_HIGH>;
++		clocks = <&rp1_clocks RP1_CLK_SYS>,
++			 <&rp1_clocks RP1_CLK_SYS>,
++			 <&rp1_clocks RP1_CLK_ETH>,
++			 <&rp1_clocks RP1_CLK_ETH_TSU>;
++		clock-names = "pclk", "hclk", "tx_clk", "tsu_clk";
++		local-mac-address = [00 00 00 00 00 00];
++		status = "disabled";
++
++		#address-cells = <1>;
++		#size-cells = <0>;
++	};
++
++	rp1_usb0: usb@40200000 {
++		compatible = "snps,dwc3";
++		reg = <0x00 0x40200000  0x0 0x100000>;
++		interrupts = <31 IRQ_TYPE_EDGE_RISING>;
++		dr_mode = "host";
++		usb3-lpm-capable;
++		snps,dis_rxdet_inp3_quirk;
++		snps,parkmode-disable-hs-quirk;
++		snps,parkmode-disable-ss-quirk;
++		snps,tx-max-burst = /bits/ 8 <8>;
++		snps,tx-thr-num-pkt = /bits/ 8 <2>;
++		status = "disabled";
++	};
++
++	rp1_usb1: usb@40300000 {
++		compatible = "snps,dwc3";
++		reg = <0x00 0x40300000  0x0 0x100000>;
++		interrupts = <36 IRQ_TYPE_EDGE_RISING>;
++		dr_mode = "host";
++		usb3-lpm-capable;
++		snps,dis_rxdet_inp3_quirk;
++		snps,parkmode-disable-hs-quirk;
++		snps,parkmode-disable-ss-quirk;
++		snps,tx-max-burst = /bits/ 8 <8>;
++		snps,tx-thr-num-pkt = /bits/ 8 <2>;
++		status = "disabled";
++	};
+ };
+diff --git a/dts/upstream/src/arm64/broadcom/rp1-nexus.dtsi b/dts/upstream/src/arm/broadcom/rp1-nexus.dtsi
+similarity index 100%
+rename from dts/upstream/src/arm64/broadcom/rp1-nexus.dtsi
+rename to dts/upstream/src/arm/broadcom/rp1-nexus.dtsi
+diff --git a/dts/upstream/src/arm64/broadcom/rp1.dtso b/dts/upstream/src/arm/broadcom/rp1.dtso
+similarity index 100%
+rename from dts/upstream/src/arm64/broadcom/rp1.dtso
+rename to dts/upstream/src/arm/broadcom/rp1.dtso
+diff --git a/dts/upstream/src/arm64/broadcom/bcm2712-rpi-5-b-ovl-rp1.dts b/dts/upstream/src/arm64/broadcom/bcm2712-rpi-5-b-ovl-rp1.dts
+deleted file mode 100644
+index 6ea3c102e0d..00000000000
+--- a/dts/upstream/src/arm64/broadcom/bcm2712-rpi-5-b-ovl-rp1.dts
++++ /dev/null
+@@ -1,121 +0,0 @@
+-// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+-/dts-v1/;
+-
+-#include <dt-bindings/gpio/gpio.h>
+-#include "bcm2712.dtsi"
+-
+-/ {
+-	compatible = "raspberrypi,5-model-b", "brcm,bcm2712";
+-	model = "Raspberry Pi 5";
+-
+-	aliases {
+-		serial10 = &uart10;
+-	};
+-
+-	chosen: chosen {
+-		stdout-path = "serial10:115200n8";
+-	};
+-
+-	clk_rp1_xosc: clock-50000000 {
+-		compatible = "fixed-clock";
+-		#clock-cells = <0>;
+-		clock-output-names = "rp1-xosc";
+-		clock-frequency = <50000000>;
+-	};
+-
+-	/* Will be filled by the bootloader */
+-	memory@0 {
+-		device_type = "memory";
+-		reg = <0 0 0 0x28000000>;
+-	};
+-
+-	sd_io_1v8_reg: sd-io-1v8-reg {
+-		compatible = "regulator-gpio";
+-		regulator-name = "vdd-sd-io";
+-		regulator-min-microvolt = <1800000>;
+-		regulator-max-microvolt = <3300000>;
+-		regulator-boot-on;
+-		regulator-always-on;
+-		regulator-settling-time-us = <5000>;
+-		gpios = <&gio_aon 3 GPIO_ACTIVE_HIGH>;
+-		states = <1800000 1>,
+-			 <3300000 0>;
+-	};
+-
+-	sd_vcc_reg: sd-vcc-reg {
+-		compatible = "regulator-fixed";
+-		regulator-name = "vcc-sd";
+-		regulator-min-microvolt = <3300000>;
+-		regulator-max-microvolt = <3300000>;
+-		regulator-boot-on;
+-		enable-active-high;
+-		gpios = <&gio_aon 4 GPIO_ACTIVE_HIGH>;
+-	};
+-};
+-
+-/* The Debug UART, on Rpi5 it's on JST-SH 1.0mm 3-pin connector
+- * labeled "UART", i.e. the interface with the system console.
+- */
+-&uart10 {
+-	status = "okay";
+-};
+-
+-/* SDIO1 is used to drive the SD card */
+-&sdio1 {
+-	vqmmc-supply = <&sd_io_1v8_reg>;
+-	vmmc-supply = <&sd_vcc_reg>;
+-	bus-width = <4>;
+-	sd-uhs-sdr50;
+-	sd-uhs-ddr50;
+-	sd-uhs-sdr104;
+-};
+-
+-&soc {
+-	firmware: firmware {
+-		compatible = "raspberrypi,bcm2835-firmware", "simple-mfd";
+-		#address-cells = <1>;
+-		#size-cells = <1>;
+-
+-		mboxes = <&mailbox>;
+-		dma-ranges;
+-
+-		firmware_clocks: clocks {
+-			compatible = "raspberrypi,firmware-clocks";
+-			#clock-cells = <1>;
+-		};
+-
+-		reset: reset {
+-			compatible = "raspberrypi,firmware-reset";
+-			#reset-cells = <1>;
+-		};
+-	};
+-
+-	power: power {
+-		compatible = "raspberrypi,bcm2835-power";
+-		firmware = <&firmware>;
+-		#power-domain-cells = <1>;
+-	};
+-};
+-
+-&hvs {
+-	clocks = <&firmware_clocks 4>, <&firmware_clocks 16>;
+-	clock-names = "core", "disp";
+-};
+-
+-&hdmi0 {
+-	clocks = <&firmware_clocks 13>, <&firmware_clocks 14>, <&dvp 0>, <&clk_27MHz>;
+-	clock-names = "hdmi", "bvb", "audio", "cec";
+-};
+-
+-&hdmi1 {
+-	clocks = <&firmware_clocks 13>, <&firmware_clocks 14>, <&dvp 1>, <&clk_27MHz>;
+-	clock-names = "hdmi", "bvb", "audio", "cec";
+-};
+-
+-&pcie1 {
+-	status = "okay";
+-};
+-
+-&pcie2 {
+-	status = "okay";
+-};
+diff --git a/include/nvme.h b/include/nvme.h
+index 2cdf8ce320c..8ff823cd81c 100644
+--- a/include/nvme.h
++++ b/include/nvme.h
+@@ -18,12 +18,12 @@ struct nvme_dev;
+  * @dev:	NVMe controller device
+  * @nsid:	0 for controller, namespace id for namespace to identify
+  * @cns:	1 for controller, 0 for namespace
+- * @dma_addr:	dma buffer address to store the identify result
++ * @buffer:	dma buffer address to store the identify result
+  * @return:	0 on success, -ETIMEDOUT on command execution timeout,
+  *		-EIO on command execution fails
+  */
+ int nvme_identify(struct nvme_dev *dev, unsigned nsid,
+-		  unsigned cns, dma_addr_t dma_addr);
++		  unsigned int cns, void *buffer);
+ 
+ /**
+  * nvme_get_features - retrieve the attributes of the feature specified
+@@ -33,13 +33,13 @@ int nvme_identify(struct nvme_dev *dev, unsigned nsid,
+  * @dev:	NVMe controller device
+  * @fid:	feature id to provide data
+  * @nsid:	namespace id the command applies to
+- * @dma_addr:	data structure used as part of the specified feature
++ * @buffer:	data structure used as part of the specified feature
+  * @result:	command-specific result in the completion queue entry
+  * @return:	0 on success, -ETIMEDOUT on command execution timeout,
+  *		-EIO on command execution fails
+  */
+ int nvme_get_features(struct nvme_dev *dev, unsigned fid, unsigned nsid,
+-		      dma_addr_t dma_addr, u32 *result);
++		      void *buffer, u32 *result);
+ 
+ /**
+  * nvme_set_features - specify the attributes of the feature indicated
+@@ -49,13 +49,13 @@ int nvme_get_features(struct nvme_dev *dev, unsigned fid, unsigned nsid,
+  * @dev:	NVMe controller device
+  * @fid:	feature id to provide data
+  * @dword11:	command-specific input parameter
+- * @dma_addr:	data structure used as part of the specified feature
++ * @buffer:	data structure used as part of the specified feature
+  * @result:	command-specific result in the completion queue entry
+  * @return:	0 on success, -ETIMEDOUT on command execution timeout,
+  *		-EIO on command execution fails
+  */
+ int nvme_set_features(struct nvme_dev *dev, unsigned fid, unsigned dword11,
+-		      dma_addr_t dma_addr, u32 *result);
++		      void *buffer, u32 *result);
+ 
+ /**
+  * nvme_scan_namespace - scan all namespaces attached to NVMe controllers
