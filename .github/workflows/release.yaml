@@ -353,7 +353,7 @@ jobs:
 
           # Fix for broadcom prefix
           mkdir -p build/broadcom
-          cp artifacts/rpi-firmware/broadcom/bcm2712-rpi-5-b.dtb build/broadcom/
+          cp artifacts/rpi-firmware/bcm2712-rpi-5-b.dtb build/broadcom/
 
           # Copy iPXE binary
           mkdir -p build/EFI/BOOT
