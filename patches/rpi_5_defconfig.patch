@@ -1,3 +1,83 @@
+diff --git a/arch/arm/dts/Makefile b/arch/arm/dts/Makefile
+index fcad6fb2fc7..f6098771fc7 100644
+--- a/arch/arm/dts/Makefile
++++ b/arch/arm/dts/Makefile
+@@ -1028,7 +1028,8 @@ dtb-$(CONFIG_ARCH_BCM283X) += \
+ 	bcm2837-rpi-cm3-io3.dtb \
+ 	bcm2837-rpi-zero-2-w.dtb \
+ 	bcm2837-rpi-zero-2-w-u-boot.dtb \
+-	bcm2711-rpi-4-b.dtb
++	bcm2711-rpi-4-b.dtb \
++	bcm2712-rpi-5-b.dtb
+ 
+ dtb-$(CONFIG_ARCH_BCM63158) += \
+ 	bcm963158.dtb
+
+diff --git a/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi b/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi
+new file mode 100644
+index 00000000000..38eec87271c
+--- /dev/null
++++ b/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi
+@@ -0,0 +1,16 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * U-Boot configuration for Raspberry Pi 5 (BCM2712)
++ * This file prevents bcm283x-u-boot.dtsi from being included for BCM2712
++ */
++
++/ {
++	soc {
++		bootph-all;
++	};
++};
++
++/* The Debug UART on Pi 5 */
++&uart10 {
++	bootph-all;
++};
+diff --git a/arch/arm/dts/bcm2712-rpi-5-b.dts b/arch/arm/dts/bcm2712-rpi-5-b.dts
+new file mode 100644
+index 00000000000..06ebabbdecc
+--- /dev/null
++++ b/arch/arm/dts/bcm2712-rpi-5-b.dts
+@@ -0,0 +1,37 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Minimal Device Tree stub for Raspberry Pi 5 Model B (BCM2712)
++ * The actual device tree is provided by the firmware at runtime
++ */
++
++/dts-v1/;
++
++/ {
++	compatible = "raspberrypi,5-model-b", "brcm,bcm2712";
++	model = "Raspberry Pi 5 Model B";
++
++	#address-cells = <2>;
++	#size-cells = <2>;
++
++	chosen {
++		stdout-path = "serial10:115200n8";
++	};
++
++	aliases {
++		serial10 = "/soc/serial@107d001000";
++	};
++
++	soc {
++		compatible = "simple-bus";
++		#address-cells = <2>;
++		#size-cells = <2>;
++		ranges;
++
++		uart10: serial@107d001000 {
++			compatible = "arm,pl011", "arm,primecell";
++			reg = <0x10 0x7d001000 0x0 0x200>;
++		};
++	};
++};
++
++#include "bcm2712-rpi-5-b-u-boot.dtsi"
 diff --git a/arch/arm/mach-bcm283x/Kconfig b/arch/arm/mach-bcm283x/Kconfig
 index d9303e8c281..e7e47b1166d 100644
 --- a/arch/arm/mach-bcm283x/Kconfig
@@ -183,6 +263,17 @@ index f9b643555dd..55541e157ec 100644
 +	struct udevice *dev;
 +	int err;
 +
++	/* Only scan for RP1 on RPi 5 family boards (BCM2712)
++	 * Board types: RPi 5B, CM5, RPi 500, CM5 Lite
++	 */
++#ifdef CONFIG_BOARD_TYPES
++	if (gd->board_type < RPI_BOARD_TYPE_RPI5_FAMILY_MIN ||
++	    gd->board_type > RPI_BOARD_TYPE_RPI5_FAMILY_MAX) {
++		/* Not a RPi 5 board, skip RP1 detection */
++		return 0;
++	}
++#endif
++
 +	err = dm_pci_find_device(PCI_VENDOR_ID_RPI, PCI_DEVICE_ID_RP1_C0,
 +				 0, &dev);
 +	if (err)
@@ -197,16 +288,16 @@ index f9b643555dd..55541e157ec 100644
  {
 diff --git a/configs/rpi_5_defconfig b/configs/rpi_5_defconfig
 new file mode 100644
-index 00000000000..b75a4f1ca19
+index 00000000000..7734616b5b0
 --- /dev/null
 +++ b/configs/rpi_5_defconfig
-@@ -0,0 +1,88 @@
+@@ -0,0 +1,87 @@
 +CONFIG_ARM=y
 +CONFIG_POSITION_INDEPENDENT=y
 +CONFIG_ARCH_BCM283X=y
 +CONFIG_TARGET_RPI_ARM64=y
 +CONFIG_ENV_SIZE=0x4000
-+CONFIG_DEFAULT_DEVICE_TREE="broadcom/bcm2712-rpi-5-b"
++CONFIG_DEFAULT_DEVICE_TREE="bcm2712-rpi-5-b"
 +CONFIG_OF_LIBFDT_OVERLAY=y
 +CONFIG_DM_RESET=y
 +CONFIG_SYS_LOAD_ADDR=0x1000000
@@ -215,7 +306,6 @@ index 00000000000..b75a4f1ca19
 +CONFIG_EFI_CAPSULE_FIRMWARE_RAW=y
 +CONFIG_BOOTSTD_DEFAULTS=y
 +CONFIG_OF_BOARD_SETUP=y
-+CONFIG_OF_UPSTREAM=y
 +CONFIG_FDT_SIMPLEFB=y
 +CONFIG_USE_PREBOOT=y
 +CONFIG_PREBOOT="pci enum; nvme scan; usb start; bootflow scan;"
@@ -2774,7 +2864,7 @@ new file mode 100644
 index 00000000000..69db528874e
 --- /dev/null
 +++ b/include/broadcom/bcm_board_types.h
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,33 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +/*
 + * This header defines BCM board types.
@@ -2797,7 +2887,14 @@ index 00000000000..69db528874e
 + */
 +typedef enum {
 +	BCM2712_RPI_5_B_NEW = 0x17,
++	BCM2712_RPI_CM5_NEW = 0x18,
++	BCM2712_RPI_500 = 0x19,
++	BCM2712_RPI_CM5_LITE = 0x1A,
 +} bcm_board_type_t;
++
++/* RPi 5 family board type range */
++#define RPI_BOARD_TYPE_RPI5_FAMILY_MIN  0x17
++#define RPI_BOARD_TYPE_RPI5_FAMILY_MAX  0x1A
 +
 +#endif /* _BCM_BOARD_TYPES_H_ */
 diff --git a/include/dt-bindings/clk/rp1.h b/include/dt-bindings/clk/rp1.h
@@ -3121,63 +3218,4 @@ index cfff275daba..6bc3abe4a93 100644
  #define PCI_VENDOR_ID_TEHUTI		0x1fc9
  #define PCI_DEVICE_ID_TEHUTI_3009	0x3009
  #define PCI_DEVICE_ID_TEHUTI_3010	0x3010
-diff --git a/dts/upstream/src/arm64/broadcom/bcm2712-rpi-5-b-u-boot.dtsi b/dts/upstream/src/arm64/broadcom/bcm2712-rpi-5-b-u-boot.dtsi
-new file mode 100644
-index 00000000000..38eec87271c
---- /dev/null
-+++ b/dts/upstream/src/arm64/broadcom/bcm2712-rpi-5-b-u-boot.dtsi
-@@ -0,0 +1,16 @@
-+// SPDX-License-Identifier: GPL-2.0+
-+/*
-+ * U-Boot configuration for Raspberry Pi 5 (BCM2712)
-+ * This file prevents bcm283x-u-boot.dtsi from being included for BCM2712
-+ */
-+
-+/ {
-+	soc {
-+		bootph-all;
-+	};
-+};
-+
-+/* The Debug UART on Pi 5 */
-+&uart10 {
-+	bootph-all;
-+};
-diff --git a/arch/arm/dts/bcm283x-u-boot.dtsi b/arch/arm/dts/bcm283x-u-boot.dtsi
-index ec0f93dd850..04bf206fe39 100644
---- a/arch/arm/dts/bcm283x-u-boot.dtsi
-+++ b/arch/arm/dts/bcm283x-u-boot.dtsi
-@@ -1,29 +1,6 @@
- // SPDX-License-Identifier: GPL-2.0+
- /*
-- * U-Boot addition to keep baudrate set by firmware
-- * and also initialize before relocation.
-- *
-- * (C) Copyright 2016 Fabian Vogt <fvogt@suse.com>
-+ * Empty stub for BCM2712 to prevent bcm283x-u-boot.dtsi from being used
-+ * BCM2712 (Raspberry Pi 5) uses a different SoC architecture and doesn't
-+ * have the same UART/GPIO labels as BCM283x (Pi 1-4).
-  */
--
--&uart0 {
--	skip-init;
--	bootph-all;
--};
--
--&uart1 {
--	skip-init;
--	bootph-all;
--};
--
--&gpio {
--	bootph-all;
--};
--
--&uart0_gpio14 {
--	bootph-all;
--};
--
--&uart1_gpio14 {
--	bootph-all;
--};
 

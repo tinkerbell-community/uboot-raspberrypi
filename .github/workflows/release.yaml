@@ -351,10 +351,6 @@ jobs:
           # Copy firmware files
           cp -r artifacts/rpi-firmware/* build/
 
-          # Fix for broadcom prefix
-          mkdir -p build/broadcom
-          cp artifacts/rpi-firmware/bcm2712-rpi-5-b.dtb build/broadcom/
-
           # Copy iPXE binary
           mkdir -p build/EFI/BOOT
           cp artifacts/ipxe-arm64-binary/snp.efi build/EFI/BOOT/BOOTAA64.EFI
