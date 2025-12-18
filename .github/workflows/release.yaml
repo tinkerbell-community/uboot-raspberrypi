@@ -94,6 +94,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           path: src
+          ref: ${{ github.ref }}
 
       - name: Checkout u-boot
         uses: actions/checkout@v4
