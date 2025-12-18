@@ -3,16 +3,15 @@ index fcad6fb2fc7..f6098771fc7 100644
 --- a/arch/arm/dts/Makefile
 +++ b/arch/arm/dts/Makefile
 @@ -1028,7 +1028,8 @@ dtb-$(CONFIG_ARCH_BCM283X) += \
+ 	bcm2837-rpi-3-b.dtb \
+ 	bcm2837-rpi-3-b-plus.dtb \
  	bcm2837-rpi-cm3-io3.dtb \
- 	bcm2837-rpi-zero-2-w.dtb \
- 	bcm2837-rpi-zero-2-w-u-boot.dtb \
 -	bcm2711-rpi-4-b.dtb
 +	bcm2711-rpi-4-b.dtb \
 +	bcm2712-rpi-5-b.dtb
  
- dtb-$(CONFIG_ARCH_BCM63158) += \
- 	bcm963158.dtb
-
+ dtb-$(CONFIG_TARGET_BCMNS) += ns-board.dtb
+ 
 diff --git a/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi b/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi
 new file mode 100644
 index 00000000000..38eec87271c
@@ -223,7 +222,7 @@ index 7a1de22e0ae..e72bd6af191 100644
  		/* SoC bus */
  		.virt = 0x107c000000UL,
 diff --git a/board/raspberrypi/rpi/rpi.c b/board/raspberrypi/rpi/rpi.c
-index f9b643555dd..55541e157ec 100644
+index f9b643555dd..0227c97a192 100644
 --- a/board/raspberrypi/rpi/rpi.c
 +++ b/board/raspberrypi/rpi/rpi.c
 @@ -20,6 +20,7 @@
@@ -245,7 +244,7 @@ index f9b643555dd..55541e157ec 100644
  	printf("RPI %s (0x%x)\n", model->name, revision);
  }
  
-@@ -644,6 +649,29 @@ int ft_board_setup(void *blob, struct bd_info *bd)
+@@ -644,6 +649,40 @@ int ft_board_setup(void *blob, struct bd_info *bd)
  	return 0;
  }
  
@@ -275,7 +274,7 @@ index f9b643555dd..55541e157ec 100644
 +#endif
 +
 +	err = dm_pci_find_device(PCI_VENDOR_ID_RPI, PCI_DEVICE_ID_RP1_C0,
-+				0, &dev);
++				 0, &dev);
 +	if (err)
 +		printf("RPI: RP1 device not found\n");
 +
@@ -286,9 +285,19 @@ index f9b643555dd..55541e157ec 100644
  #if CONFIG_IS_ENABLED(GENERATE_ACPI_TABLE)
  static bool is_rpi4(void)
  {
+diff --git a/board/raspberrypi/rpi/rpi.env b/board/raspberrypi/rpi/rpi.env
+index 9ac9d6768ca..f879df109ac 100644
+--- a/board/raspberrypi/rpi/rpi.env
++++ b/board/raspberrypi/rpi/rpi.env
+@@ -77,4 +77,4 @@ pxefile_addr_r=0x05500000
+ fdt_addr_r=0x05600000
+ ramdisk_addr_r=0x05700000
+ 
+-boot_targets=mmc usb pxe dhcp
++boot_targets=mmc nvme usb pxe dhcp
 diff --git a/configs/rpi_5_defconfig b/configs/rpi_5_defconfig
 new file mode 100644
-index 00000000000..7734616b5b0
+index 00000000000..2c322bc0cb8
 --- /dev/null
 +++ b/configs/rpi_5_defconfig
 @@ -0,0 +1,87 @@
@@ -379,6 +388,47 @@ index 00000000000..7734616b5b0
 +CONFIG_USB_XHCI_DWC3=y
 +CONFIG_USB_DWC3=y
 +CONFIG_USB_DWC3_GENERIC=y
+diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
+index 69e8e72c5d7..5ce72049e55 100644
+--- a/configs/rpi_arm64_defconfig
++++ b/configs/rpi_arm64_defconfig
+@@ -9,17 +9,19 @@ CONFIG_OF_LIBFDT_OVERLAY=y
+ CONFIG_DM_RESET=y
+ CONFIG_SYS_LOAD_ADDR=0x1000000
+ CONFIG_PCI=y
++CONFIG_BOARD_TYPES=y
+ CONFIG_EFI_RUNTIME_UPDATE_CAPSULE=y
+ CONFIG_EFI_CAPSULE_FIRMWARE_RAW=y
+ CONFIG_BOOTSTD_DEFAULTS=y
+ CONFIG_OF_BOARD_SETUP=y
+ CONFIG_FDT_SIMPLEFB=y
+ CONFIG_USE_PREBOOT=y
+-CONFIG_PREBOOT="pci enum; usb start;"
++CONFIG_PREBOOT="pci enum; nvme scan; usb start;"
+ CONFIG_SYS_PBSIZE=1049
+ # CONFIG_DISPLAY_CPUINFO is not set
+ # CONFIG_DISPLAY_BOARDINFO is not set
+ CONFIG_MISC_INIT_R=y
++CONFIG_BOARD_LATE_INIT=y
+ CONFIG_SYS_PROMPT="U-Boot> "
+ CONFIG_CMD_NVEDIT_EFI=y
+ CONFIG_CMD_GPIO=y
+@@ -65,3 +67,15 @@ CONFIG_VIDEO_BCM2835=y
+ CONFIG_CONSOLE_SCROLL_LINES=10
+ CONFIG_PHYS_TO_BUS=y
+ # CONFIG_HEXDUMP is not set
++CONFIG_CPU_ARMV8=y
++CONFIG_BCM2712=y
++CONFIG_MFD_RP1=y
++CONFIG_RP1_GPIO=y
++CONFIG_RESET_BRCMSTB=y
++CONFIG_RESET_BRCMSTB_RESCAL=y
++CONFIG_CLK=y
++CONFIG_CLK_RP1=y
++CONFIG_SYS_PCI_64BIT=y
++CONFIG_NVME=y
++CONFIG_NVME_PCI=y
++CONFIG_MACB=y
 diff --git a/drivers/clk/Kconfig b/drivers/clk/Kconfig
 index b884a02bdeb..9383e8564f1 100644
 --- a/drivers/clk/Kconfig
@@ -2859,12 +2909,38 @@ index 00000000000..7861f7c9baf
 +	.probe = brcmstb_reset_probe,
 +	.priv_auto = sizeof(struct brcmstb_reset),
 +};
+diff --git a/drivers/usb/host/xhci-brcm.c b/drivers/usb/host/xhci-brcm.c
+index 595839fac3c..63e7e5b1a25 100644
+--- a/drivers/usb/host/xhci-brcm.c
++++ b/drivers/usb/host/xhci-brcm.c
+@@ -81,7 +81,7 @@ static int xhci_brcm_deregister(struct udevice *dev)
+ }
+ 
+ static const struct udevice_id xhci_brcm_ids[] = {
+-	{ .compatible = "brcm,generic-xhci" },
++	{ .compatible = "generic-xhci" },
+ 	{ }
+ };
+ 
+diff --git a/drivers/video/bcm2835.c b/drivers/video/bcm2835.c
+index 0c81e606622..3de8fa2ef58 100644
+--- a/drivers/video/bcm2835.c
++++ b/drivers/video/bcm2835.c
+@@ -66,6 +66,8 @@ static int bcm2835_video_probe(struct udevice *dev)
+ static const struct udevice_id bcm2835_video_ids[] = {
+ 	{ .compatible = "brcm,bcm2835-hdmi" },
+ 	{ .compatible = "brcm,bcm2711-hdmi0" },
++	{ .compatible = "brcm,bcm2712-hdmi0" },
++	{ .compatible = "brcm,bcm2712-hdmi1" },
+ 	{ .compatible = "brcm,bcm2708-fb" },
+ #if !IS_ENABLED(CONFIG_VIDEO_DT_SIMPLEFB)
+ 	{ .compatible = "simple-framebuffer" },
 diff --git a/include/broadcom/bcm_board_types.h b/include/broadcom/bcm_board_types.h
 new file mode 100644
-index 00000000000..69db528874e
+index 00000000000..3508b40fa9c
 --- /dev/null
 +++ b/include/broadcom/bcm_board_types.h
-@@ -0,0 +1,33 @@
+@@ -0,0 +1,32 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +/*
 + * This header defines BCM board types.
@@ -2887,14 +2963,14 @@ index 00000000000..69db528874e
 + */
 +typedef enum {
 +	BCM2712_RPI_5_B_NEW = 0x17,
-+	BCM2712_RPI_CM5_NEW = 0x18,
++	BCM2712_CM5 = 0x18,
 +	BCM2712_RPI_500 = 0x19,
-+	BCM2712_RPI_CM5_LITE = 0x1A,
++	BCM2712_CM5_LITE = 0x1A,
 +} bcm_board_type_t;
 +
-+/* RPi 5 family board type range */
-+#define RPI_BOARD_TYPE_RPI5_FAMILY_MIN  0x17
-+#define RPI_BOARD_TYPE_RPI5_FAMILY_MAX  0x1A
++/* Range constants for Raspberry Pi 5 family boards */
++#define RPI_BOARD_TYPE_RPI5_FAMILY_MIN	BCM2712_RPI_5_B_NEW
++#define RPI_BOARD_TYPE_RPI5_FAMILY_MAX	BCM2712_CM5_LITE
 +
 +#endif /* _BCM_BOARD_TYPES_H_ */
 diff --git a/include/dt-bindings/clk/rp1.h b/include/dt-bindings/clk/rp1.h
@@ -3218,4 +3294,3 @@ index cfff275daba..6bc3abe4a93 100644
  #define PCI_VENDOR_ID_TEHUTI		0x1fc9
  #define PCI_DEVICE_ID_TEHUTI_3009	0x3009
  #define PCI_DEVICE_ID_TEHUTI_3010	0x3010
-
