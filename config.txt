@@ -28,3 +28,5 @@ dtoverlay=vc4-kms-v3d-pi4,noaudio
 kernel=u-boot-rpi5.bin
 # Disable console output for debugging
 enable_uart=0
+
+[all]
