@@ -271,6 +271,10 @@ jobs:
           #undef USB_HCD_UHCI           /* UHCI USB host controller */
           #undef USB_HCD_XHCI           /* xHCI USB host controller */
           #undef USB_KEYBOARD           /* USB keyboards */
+
+          #undef NAP_EFIX86
+          #undef NAP_EFIARM
+          #define NAP_NULL
           EOF
 
           cat <<EOF | tee config/rpi/crypto.h
