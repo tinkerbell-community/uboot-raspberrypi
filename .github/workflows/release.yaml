@@ -100,7 +100,7 @@ jobs:
           repository: tinkerbell-community/u-boot
           fetch-depth: 1
           path: u-boot
-          ref: unified
+          ref: rpi5
 
       - name: Cache and install build dependencies
         uses: awalsh128/cache-apt-pkgs-action@latest
