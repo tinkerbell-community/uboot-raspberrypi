@@ -83,8 +83,6 @@ jobs:
         config:
           - name: rpi_arm64
             path: u-boot.bin
-          - name: rpi_5
-            path: u-boot-rpi5.bin
     permissions:
       contents: read
 
@@ -99,10 +97,10 @@ jobs:
       - name: Checkout u-boot
         uses: actions/checkout@v4
         with:
-          repository: u-boot/u-boot
+          repository: tinkerbell-community/u-boot
           fetch-depth: 1
           path: u-boot
-          ref: ${{ env.UBOOT_VERSION }}
+          ref: unified
 
       - name: Cache and install build dependencies
         uses: awalsh128/cache-apt-pkgs-action@latest
@@ -113,7 +111,6 @@ jobs:
       - name: Configure U-Boot for Raspberry Pi 4 ARM64
         working-directory: u-boot
         run: |
-          patch -p1 < ${{ github.workspace }}/src/patches/${{ matrix.config.name }}_defconfig.patch
           make ${{ matrix.config.name }}_defconfig
 
           echo "CONFIG_SERVERIP_FROM_PROXYDHCP=y" >> .config
