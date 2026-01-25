@@ -768,6 +768,15 @@ index 250dd175b55..823a4d70a6b 100644
  	if (!OF_CHECK_COUNTS(pna, pns)) {
  		printf("Bad cell count for %s\n", of_node_full_name(parent));
  		ret = -EINVAL;
+@@ -392,7 +392,7 @@ int of_get_dma_range(const struct device_node *dev, phys_addr_t *cpu,
+ 	}
+ 
+ 	*bus = of_read_number(ranges, na);
+-	*cpu = of_translate_dma_address(dev, ranges + na);
++	*cpu = of_translate_dma_address(dev, ranges);
+ 	*size = of_read_number(ranges + na + pna, ns);
+ 
+ out_parent:
 diff --git a/drivers/gpio/Kconfig b/drivers/gpio/Kconfig
 index 2ed2bc82946..ade88eed758 100644
 --- a/drivers/gpio/Kconfig
@@ -1728,7 +1737,7 @@ diff --git a/drivers/nvme/nvme.c b/drivers/nvme/nvme.c
 index 2b14437f69c..96278e045fe 100644
 --- a/drivers/nvme/nvme.c
 +++ b/drivers/nvme/nvme.c
-@@ -27,6 +27,37 @@
+@@ -27,6 +27,24 @@
  #define IO_TIMEOUT		30
  #define MAX_PRP_POOL		512
  
@@ -1738,29 +1747,13 @@ index 2b14437f69c..96278e045fe 100644
 + * @addr: CPU physical address to be used as a DMA buffer
 + *
 + * Translates a system physical address into a PCIe bus address as seen by an NVMe device
-+ * for DMA operations. If the NVMe device is not attached to a PCI bus, the function returns
-+ * the original address unchanged.
++ * for DMA operations. Uses the standard U-Boot DMA translation API for proper address mapping.
 + *
 + * Return: The translated PCIe bus address for use by the NVMe device.
 + */
-+static phys_addr_t nvme_get_dma_address(struct nvme_dev *dev, phys_addr_t addr) {
-+	struct udevice *bus = dev_get_parent(dev->udev);
-+	if (!bus || device_get_uclass_id(bus) != UCLASS_PCI) {
-+		return addr;
-+	}
-+
-+	struct udevice *ctlr = pci_get_controller(bus);
-+
-+	int i = 0;
-+	struct pci_region entry;
-+	while (pci_get_dma_regions(ctlr, &entry, i++) == 0) {
-+		if ((addr >= entry.phys_start) &&
-+				(addr < entry.phys_start + entry.size))
-+			return entry.bus_start - entry.phys_start + addr;
-+	}
-+
-+	printf("Warning: No matching DMA inbound window found for NVMe assuming 1:1 mapping! (addr=0x%llx)\n", (unsigned long long)addr);
-+	return addr;
++static inline dma_addr_t nvme_get_dma_address(struct nvme_dev *dev, phys_addr_t addr)
++{
++	return dev_phys_to_bus(dev->udev->parent, addr);
 +}
 +
  static int nvme_wait_csts(struct nvme_dev *dev, u32 mask, u32 val)
@@ -1782,7 +1775,20 @@ index 2b14437f69c..96278e045fe 100644
  		dma_addr += page_size;
  		nprps--;
  	}
-@@ -393,8 +424,9 @@ static int nvme_configure_admin_queue(struct nvme_dev *dev)
+@@ -46,7 +58,7 @@ static int nvme_wait_csts(struct nvme_dev *dev, u32 mask, u32 val)
+ static int nvme_setup_prps(struct nvme_dev *dev, u64 *prp2,
+ 			   int total_len, u64 dma_addr)
+ {
+-	u32 page_size = dev->page_size;
++	const u32 page_size = dev->page_size;
++	const u32 prps_per_page = (page_size >> 3) - 1;
+ 	int offset = dma_addr & (page_size - 1);
+ 	u64 *prp_pool;
+ 	int length = total_len;
+ 	int i, nprps;
++	u32 num_pages;
++
++@@ -91,12 +103,9 @@ static int nvme_configure_admin_queue(struct nvme_dev *dev)
  	dev->ctrl_config |= NVME_CC_IOSQES | NVME_CC_IOCQES;
  
  	writel(aqa, &dev->bar->aqa);
