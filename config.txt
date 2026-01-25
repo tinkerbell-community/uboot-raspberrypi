@@ -13,15 +13,15 @@ arm_64bit=1
 arm_boost=1
 # Enable the primary/console UART.
 enable_uart=1
-# Disable Bluetooth.
-dtoverlay=disable-bt
-# Disable Wireless Lan.
-dtoverlay=disable-wifi
 # Disable UART for Raspberry Pi 5 to avoid U-boot compatibility issue.
 
 [pi4]
 # Slightly higher GPU mem for HDMI init
 gpu_mem=64
+# Disable Bluetooth.
+dtoverlay=disable-bt
+# Disable Wireless Lan.
+dtoverlay=disable-wifi
 dtoverlay=vc4-kms-v3d-pi4,noaudio
 
 [pi5]

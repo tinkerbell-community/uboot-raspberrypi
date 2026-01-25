@@ -157,6 +157,17 @@ jobs:
           path: firmware
           ref: ${{ env.RPI_FIRMWARE_VERSION }}
 
+      - name: Remove RPI5 firmware
+        run: |
+          rm firmware/boot/bcm2712-d-rpi-5-b.dtb
+          rm firmware/boot/bcm2712-rpi-5-b.dtb
+          rm firmware/boot/bcm2712-rpi-500.dtb
+          rm firmware/boot/bcm2712-rpi-cm5-cm4io.dtb
+          rm firmware/boot/bcm2712-rpi-cm5-cm5io.dtb
+          rm firmware/boot/bcm2712-rpi-cm5l-cm4io.dtb
+          rm firmware/boot/bcm2712-rpi-cm5l-cm5io.dtb
+          rm firmware/boot/bcm2712d0-rpi-5-b.dtb
+
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
