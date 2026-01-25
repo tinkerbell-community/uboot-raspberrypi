@@ -382,8 +382,9 @@ index 00000000000..2c322bc0cb8
 +CONFIG_NVME_PCI=y
 +CONFIG_MACB=y
 +CONFIG_NR_DRAM_BANKS=8
-+# Enable EFI bootmanager (reserves memory on 0x00080000 -> prevents continuing after being successful)
 +CONFIG_CMD_BOOTEFI_BOOTMGR=y
++CONFIG_EFI_PARTITION=y
++CONFIG_PARTITION_TYPE_GUID=y
 +# USB Keyboard support
 +CONFIG_USB_XHCI_DWC3=y
 +CONFIG_USB_DWC3=y
