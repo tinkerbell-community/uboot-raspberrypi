@@ -297,7 +297,7 @@ index 9ac9d6768ca..f879df109ac 100644
 +boot_targets=mmc nvme usb pxe dhcp
 diff --git a/configs/rpi_5_defconfig b/configs/rpi_5_defconfig
 new file mode 100644
-index 00000000000..2c322bc0cb8
+index 00000000000..29d32b32bd8
 --- /dev/null
 +++ b/configs/rpi_5_defconfig
 @@ -0,0 +1,87 @@
@@ -388,7 +388,6 @@ index 00000000000..2c322bc0cb8
 +# USB Keyboard support
 +CONFIG_USB_XHCI_DWC3=y
 +CONFIG_USB_DWC3=y
-+CONFIG_USB_DWC3_GENERIC=y
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
 index 69e8e72c5d7..5ce72049e55 100644
 --- a/configs/rpi_arm64_defconfig
@@ -744,7 +743,7 @@ index 00000000000..94e12271345
 +	.flags = CLK_IGNORE_UNUSED,
 +};
 diff --git a/drivers/core/of_addr.c b/drivers/core/of_addr.c
-index 250dd175b55..823a4d70a6b 100644
+index 250dd175b55..34233217f87 100644
 --- a/drivers/core/of_addr.c
 +++ b/drivers/core/of_addr.c
 @@ -374,16 +374,16 @@ int of_get_dma_range(const struct device_node *dev, phys_addr_t *cpu,
@@ -768,7 +767,7 @@ index 250dd175b55..823a4d70a6b 100644
  	if (!OF_CHECK_COUNTS(pna, pns)) {
  		printf("Bad cell count for %s\n", of_node_full_name(parent));
  		ret = -EINVAL;
-@@ -392,7 +392,7 @@ int of_get_dma_range(const struct device_node *dev, phys_addr_t *cpu,
+@@ -391,7 +391,7 @@ int of_get_dma_range(const struct device_node *dev, phys_addr_t *cpu,
  	}
  
  	*bus = of_read_number(ranges, na);
@@ -1734,10 +1733,10 @@ index 0eb90574618..a8f4fc494a6 100644
  #define GEM_RX_CSUM_CHECKED_MASK		2
  #define gem_writel_queue_TBQP(port, value, queue_num)	\
 diff --git a/drivers/nvme/nvme.c b/drivers/nvme/nvme.c
-index 2b14437f69c..96278e045fe 100644
+index 2b14437f69c..83441de6fac 100644
 --- a/drivers/nvme/nvme.c
 +++ b/drivers/nvme/nvme.c
-@@ -27,6 +27,24 @@
+@@ -27,6 +27,21 @@
  #define IO_TIMEOUT		30
  #define MAX_PRP_POOL		512
  
@@ -1759,7 +1758,20 @@ index 2b14437f69c..96278e045fe 100644
  static int nvme_wait_csts(struct nvme_dev *dev, u32 mask, u32 val)
  {
  	int timeout;
-@@ -91,12 +122,12 @@ static int nvme_setup_prps(struct nvme_dev *dev, u64 *prp2,
+@@ -48,11 +63,11 @@ static int nvme_setup_prps(struct nvme_dev *dev, u64 *prp2,
+ 			   int total_len, u64 dma_addr)
+ {
+ 	u32 page_size = dev->page_size;
++	const u32 prps_per_page = (page_size >> 3) - 1;
+ 	int offset = dma_addr & (page_size - 1);
+ 	u64 *prp_pool;
+ 	int length = total_len;
+ 	int i, nprps;
+-	u32 prps_per_page = page_size >> 3;
+ 	u32 num_pages;
+ 
+ 	length -= (page_size - offset);
+@@ -91,12 +106,12 @@ static int nvme_setup_prps(struct nvme_dev *dev, u64 *prp2,
  	i = 0;
  	while (nprps) {
  		if ((i == (prps_per_page - 1)) && nprps > 1) {
@@ -1775,20 +1787,7 @@ index 2b14437f69c..96278e045fe 100644
  		dma_addr += page_size;
  		nprps--;
  	}
-@@ -46,7 +58,7 @@ static int nvme_wait_csts(struct nvme_dev *dev, u32 mask, u32 val)
- static int nvme_setup_prps(struct nvme_dev *dev, u64 *prp2,
- 			   int total_len, u64 dma_addr)
- {
--	u32 page_size = dev->page_size;
-+	const u32 page_size = dev->page_size;
-+	const u32 prps_per_page = (page_size >> 3) - 1;
- 	int offset = dma_addr & (page_size - 1);
- 	u64 *prp_pool;
- 	int length = total_len;
- 	int i, nprps;
-+	u32 num_pages;
-+
-+@@ -91,12 +103,9 @@ static int nvme_configure_admin_queue(struct nvme_dev *dev)
+@@ -393,8 +408,9 @@ static int nvme_configure_admin_queue(struct nvme_dev *dev)
  	dev->ctrl_config |= NVME_CC_IOSQES | NVME_CC_IOCQES;
  
  	writel(aqa, &dev->bar->aqa);
@@ -1800,7 +1799,7 @@ index 2b14437f69c..96278e045fe 100644
  
  	result = nvme_enable_ctrl(dev);
  	if (result)
-@@ -420,7 +452,7 @@ static int nvme_alloc_cq(struct nvme_dev *dev, u16 qid,
+@@ -420,7 +436,7 @@ static int nvme_alloc_cq(struct nvme_dev *dev, u16 qid,
  
  	memset(&c, 0, sizeof(c));
  	c.create_cq.opcode = nvme_admin_create_cq;
@@ -1809,7 +1808,7 @@ index 2b14437f69c..96278e045fe 100644
  	c.create_cq.cqid = cpu_to_le16(qid);
  	c.create_cq.qsize = cpu_to_le16(nvmeq->q_depth - 1);
  	c.create_cq.cq_flags = cpu_to_le16(flags);
-@@ -437,7 +469,7 @@ static int nvme_alloc_sq(struct nvme_dev *dev, u16 qid,
+@@ -437,7 +453,7 @@ static int nvme_alloc_sq(struct nvme_dev *dev, u16 qid,
  
  	memset(&c, 0, sizeof(c));
  	c.create_sq.opcode = nvme_admin_create_sq;
@@ -1818,7 +1817,7 @@ index 2b14437f69c..96278e045fe 100644
  	c.create_sq.sqid = cpu_to_le16(qid);
  	c.create_sq.qsize = cpu_to_le16(nvmeq->q_depth - 1);
  	c.create_sq.sq_flags = cpu_to_le16(flags);
-@@ -458,14 +490,14 @@ int nvme_identify(struct nvme_dev *dev, unsigned nsid,
+@@ -458,14 +474,14 @@ int nvme_identify(struct nvme_dev *dev, unsigned nsid,
  	memset(&c, 0, sizeof(c));
  	c.identify.opcode = nvme_admin_identify;
  	c.identify.nsid = cpu_to_le32(nsid);
@@ -1836,7 +1835,7 @@ index 2b14437f69c..96278e045fe 100644
  	}
  
  	c.identify.cns = cpu_to_le32(cns);
-@@ -490,7 +522,7 @@ int nvme_get_features(struct nvme_dev *dev, unsigned fid, unsigned nsid,
+@@ -490,7 +506,7 @@ int nvme_get_features(struct nvme_dev *dev, unsigned fid, unsigned nsid,
  	memset(&c, 0, sizeof(c));
  	c.features.opcode = nvme_admin_get_features;
  	c.features.nsid = cpu_to_le32(nsid);
@@ -1845,7 +1844,7 @@ index 2b14437f69c..96278e045fe 100644
  	c.features.fid = cpu_to_le32(fid);
  
  	ret = nvme_submit_admin_cmd(dev, &c, result);
-@@ -516,7 +548,7 @@ int nvme_set_features(struct nvme_dev *dev, unsigned fid, unsigned dword11,
+@@ -516,7 +532,7 @@ int nvme_set_features(struct nvme_dev *dev, unsigned fid, unsigned dword11,
  
  	memset(&c, 0, sizeof(c));
  	c.features.opcode = nvme_admin_set_features;
@@ -1854,7 +1853,7 @@ index 2b14437f69c..96278e045fe 100644
  	c.features.fid = cpu_to_le32(fid);
  	c.features.dword11 = cpu_to_le32(dword11);
  
-@@ -785,8 +817,9 @@ static ulong nvme_blk_rw(struct udevice *udev, lbaint_t blknr,
+@@ -785,8 +801,9 @@ static ulong nvme_blk_rw(struct udevice *udev, lbaint_t blknr,
  		c.rw.slba = cpu_to_le64(slba);
  		slba += lbas;
  		c.rw.length = cpu_to_le16(lbas - 1);
@@ -1866,6 +1865,32 @@ index 2b14437f69c..96278e045fe 100644
  		status = nvme_submit_sync_cmd(dev->queues[NVME_IO_Q],
  				&c, NULL, IO_TIMEOUT);
  		if (status)
+diff --git a/drivers/nvme/nvme.h b/drivers/nvme/nvme.h
+index bc1d612dde4..f52103c0095 100644
+--- a/drivers/nvme/nvme.h
++++ b/drivers/nvme/nvme.h
+@@ -7,8 +7,11 @@
+ #ifndef __DRIVER_NVME_H__
+ #define __DRIVER_NVME_H__
+ 
++#include <phys2bus.h>
+ #include <asm/io.h>
+ 
++#define nvme_to_dev(_dev)	_dev->udev
++
+ struct nvme_id_power_state {
+ 	__le16			max_power;	/* centiwatts */
+ 	__u8			rsvd2;
+@@ -705,4 +708,9 @@ int nvme_init(struct udevice *udev);
+  */
+ int nvme_shutdown(struct udevice *udev);
+ 
++static inline dma_addr_t nvme_virt_to_bus(struct nvme_dev *dev, void *addr)
++{
++	return dev_phys_to_bus(nvme_to_dev(dev)->parent, virt_to_phys(addr));
++}
++
+ #endif /* __DRIVER_NVME_H__ */
 diff --git a/drivers/pci/pci-uclass.c b/drivers/pci/pci-uclass.c
 index c370f8c6400..4092e8ff5a9 100644
 --- a/drivers/pci/pci-uclass.c
@@ -3301,3 +3326,6 @@ index cfff275daba..6bc3abe4a93 100644
  #define PCI_VENDOR_ID_TEHUTI		0x1fc9
  #define PCI_DEVICE_ID_TEHUTI_3009	0x3009
  #define PCI_DEVICE_ID_TEHUTI_3010	0x3010
+diff --git a/nocloud-arm64.raw b/nocloud-arm64.raw
+new file mode 100644
+index 00000000000..e69de29bb2d
