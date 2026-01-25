@@ -157,22 +157,36 @@ jobs:
           path: firmware
           ref: ${{ env.RPI_FIRMWARE_VERSION }}
 
-      - name: Remove RPI5 firmware
-        run: |
-          rm firmware/boot/bcm2712-d-rpi-5-b.dtb
-          rm firmware/boot/bcm2712-rpi-5-b.dtb
-          rm firmware/boot/bcm2712-rpi-500.dtb
-          rm firmware/boot/bcm2712-rpi-cm5-cm4io.dtb
-          rm firmware/boot/bcm2712-rpi-cm5-cm5io.dtb
-          rm firmware/boot/bcm2712-rpi-cm5l-cm4io.dtb
-          rm firmware/boot/bcm2712-rpi-cm5l-cm5io.dtb
-          rm firmware/boot/bcm2712d0-rpi-5-b.dtb
-
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
           name: rpi-firmware
-          path: firmware/boot/
+          path: |
+            firmware/boot/
+            !firmware/boot/bcm2712*.dtb
+          retention-days: 1
+          if-no-files-found: error
+
+  checkout-firmware-next:
+    needs: determine-version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Raspberry Pi firmware
+        uses: actions/checkout@v4
+        with:
+          repository: raspberrypi/firmware
+          fetch-depth: 1
+          path: firmware
+          ref: next
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpi-firmware-next
+          path: firmware/boot/bcm2712*.dtb
           retention-days: 1
           if-no-files-found: error
 
@@ -366,6 +380,9 @@ jobs:
 
           # Copy firmware files
           cp -r artifacts/rpi-firmware/* build/
+
+          # Copy rpi 5 firmware files
+          cp -r artifacts/rpi-firmware-next/* build/
 
           # Copy iPXE binary
           mkdir -p build/EFI/BOOT
