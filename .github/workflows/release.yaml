@@ -345,7 +345,7 @@ jobs:
           if-no-files-found: error
 
   build-image:
-    needs: [determine-version, build-uboot, checkout-firmware, build-ipxe-arm64, prepare-config]
+    needs: [determine-version, build-uboot, build-uboot-rpi5, checkout-firmware, build-ipxe-arm64, prepare-config]
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: write
