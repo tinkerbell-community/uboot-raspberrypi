@@ -34,221 +34,18 @@ index 00000000000..38eec87271c
 +&uart10 {
 +	bootph-all;
 +};
-diff --git a/arch/arm/dts/bcm2712-rpi-5-b.dts b/arch/arm/dts/bcm2712-rpi-5-b.dts
-new file mode 100644
-index 00000000000..1515fb90395
---- /dev/null
-+++ b/arch/arm/dts/bcm2712-rpi-5-b.dts
-@@ -0,0 +1,198 @@
-+// SPDX-License-Identifier: GPL-2.0
-+/*
-+ * Minimal Device Tree stub for Raspberry Pi 5 Model B (BCM2712)
-+ * The actual device tree is provided by the firmware at runtime
-+ * This stub provides essential devices for U-Boot operation
-+ */
-+
-+/dts-v1/;
-+
-+#include <dt-bindings/gpio/gpio.h>
-+#include <dt-bindings/interrupt-controller/irq.h>
-+
-+/ {
-+	compatible = "raspberrypi,5-model-b", "brcm,bcm2712";
-+	model = "Raspberry Pi 5 Model B";
-+
-+	#address-cells = <2>;
-+	#size-cells = <2>;
-+
-+	chosen {
-+		stdout-path = "serial10:115200n8";
-+	};
-+
-+	aliases {
-+		serial10 = "/soc/serial@107d001000";
-+		ethernet0 = "/axi/pcie@1000120000/rp1_nexus/pci-ep-bus@1/ethernet@40100000";
-+	};
-+
-+	/* RP1 50MHz oscillator - required for RP1 clocks */
-+	clk_rp1_xosc: clock-50000000 {
-+		compatible = "fixed-clock";
-+		#clock-cells = <0>;
-+		clock-output-names = "rp1-xosc";
-+		clock-frequency = <50000000>;
-+	};
-+
-+	soc {
-+		compatible = "simple-bus";
-+		#address-cells = <2>;
-+		#size-cells = <2>;
-+		ranges;
-+
-+		uart10: serial@107d001000 {
-+			compatible = "arm,pl011", "arm,primecell";
-+			reg = <0x10 0x7d001000 0x0 0x200>;
-+		};
-+	};
-+
-+	/* AXI bus - contains PCIe controllers */
-+	axi: axi {
-+		compatible = "simple-bus";
-+		#address-cells = <2>;
-+		#size-cells = <2>;
-+		ranges;
-+
-+		/* PCIe0 - M.2 NVMe slot (Hat+) */
-+		pcie0: pcie@1000100000 {
-+			compatible = "brcm,bcm2712-pcie";
-+			reg = <0x10 0x00100000 0x00 0x9310>;
-+			device_type = "pci";
-+			#address-cells = <3>;
-+			#interrupt-cells = <1>;
-+			#size-cells = <2>;
-+
-+			ranges =
-+				/* ~4GiB, 32-bit, non-prefetchable at PCIe 00_0000_0000 */
-+				<0x02000000 0x00 0x00000000 0x17 0x00000000 0x00 0xfffffffc>,
-+				/* 12GiB, 64-bit, prefetchable at PCIe 04_0000_0000 */
-+				<0x43000000 0x04 0x00000000 0x14 0x00000000 0x03 0x00000000>;
-+
-+			dma-ranges =
-+				/* 64GiB, 64-bit, prefetchable at PCIe 10_0000_0000 */
-+				<0x43000000 0x10 0x00000000 0x00 0x00000000 0x10 0x00000000>;
-+		};
-+
-+		/* PCIe1 - External PCIe slot (requires Hat+ for physical access) */
-+		pcie1: pcie@1000110000 {
-+			compatible = "brcm,bcm2712-pcie";
-+			reg = <0x10 0x00110000 0x00 0x9310>;
-+			device_type = "pci";
-+			#address-cells = <3>;
-+			#interrupt-cells = <1>;
-+			#size-cells = <2>;
-+
-+			ranges =
-+				/* ~4GiB, 32-bit, non-prefetchable at PCIe 00_0000_0000 */
-+				<0x02000000 0x00 0x00000000 0x1b 0x00000000 0x00 0xfffffffc>,
-+				/* 12GiB, 64-bit, prefetchable at PCIe 04_0000_0000 */
-+				<0x43000000 0x04 0x00000000 0x18 0x00000000 0x03 0x00000000>;
-+
-+			dma-ranges =
-+				/* 64GiB, 64-bit, non-prefetchable at PCIe 10_0000_0000 */
-+				<0x03000000 0x10 0x00000000 0x00 0x00000000 0x10 0x00000000>;
-+		};
-+
-+		/* PCIe2 - RP1 southbridge connection */
-+		pcie2: pcie@1000120000 {
-+			compatible = "brcm,bcm2712-pcie";
-+			reg = <0x10 0x00120000 0x00 0x9310>;
-+			device_type = "pci";
-+			#address-cells = <3>;
-+			#interrupt-cells = <1>;
-+			#size-cells = <2>;
-+
-+			ranges =
-+				/* ~4GiB, 32-bit, non-prefetchable at PCIe 00_0000_0000 */
-+				<0x02000000 0x00 0x00000000 0x1f 0x00000000 0x00 0xfffffffc>,
-+				/* 12GiB, 64-bit, prefetchable at PCIe 04_0000_0000 */
-+				<0x43000000 0x04 0x00000000 0x1c 0x00000000 0x03 0x00000000>;
-+
-+			dma-ranges =
-+				/* 4MiB, 32-bit, non-prefetchable at PCIe 00_0000_0000 */
-+				<0x02000000 0x00 0x00000000 0x1f 0x00000000 0x00 0x00400000>,
-+				/* 64GiB, 64-bit, prefetchable at PCIe 10_0000_0000 */
-+				<0x43000000 0x10 0x00000000 0x00 0x00000000 0x10 0x00000000>;
-+
-+			/* RP1 Nexus - PCI device 1de4:0001 (Raspberry Pi RP1-C0) */
-+			rp1_nexus {
-+				compatible = "pci1de4,1";
-+				#address-cells = <3>;
-+				#size-cells = <2>;
-+				ranges = <0x01 0x00 0x00000000
-+					  0x02000000 0x00 0x00000000
-+					  0x0 0x400000>;
-+				interrupt-controller;
-+				#interrupt-cells = <2>;
-+
-+				/* RP1 peripheral bus */
-+				pci_ep_bus: pci-ep-bus@1 {
-+					compatible = "simple-bus";
-+					ranges = <0x00 0x40000000  0x01 0x00 0x00000000  0x00 0x00400000>;
-+					dma-ranges = <0x10 0x00000000  0x43000000 0x10 0x00000000  0x10 0x00000000>;
-+					#address-cells = <2>;
-+					#size-cells = <2>;
-+
-+					/* RP1 Clock controller */
-+					rp1_clocks: clocks@40018000 {
-+						compatible = "raspberrypi,rp1-clocks";
-+						reg = <0x00 0x40018000 0x0 0x10038>;
-+						#clock-cells = <1>;
-+						clocks = <&clk_rp1_xosc>;
-+					};
-+
-+					/* RP1 GPIO controller */
-+					rp1_gpio: pinctrl@400d0000 {
-+						compatible = "raspberrypi,rp1-gpio";
-+						reg = <0x00 0x400d0000  0x0 0xc000>,
-+						      <0x00 0x400e0000  0x0 0xc000>,
-+						      <0x00 0x400f0000  0x0 0xc000>;
-+						gpio-controller;
-+						#gpio-cells = <2>;
-+						interrupt-controller;
-+						#interrupt-cells = <2>;
-+					};
-+
-+					/* RP1 Ethernet (MACB) */
-+					rp1_eth: ethernet@40100000 {
-+						compatible = "raspberrypi,rp1-gem";
-+						reg = <0x00 0x40100000  0x0 0x4000>;
-+						clocks = <&rp1_clocks 12>, /* RP1_CLK_SYS */
-+							 <&rp1_clocks 12>, /* RP1_CLK_SYS */
-+							 <&rp1_clocks 16>, /* RP1_CLK_ETH */
-+							 <&rp1_clocks 29>; /* RP1_CLK_ETH_TSU */
-+						clock-names = "pclk", "hclk", "tx_clk", "tsu_clk";
-+						local-mac-address = [00 00 00 00 00 00];
-+						phy-mode = "rgmii-id";
-+						#address-cells = <1>;
-+						#size-cells = <0>;
-+					};
-+
-+					/* RP1 USB0 (DWC3) */
-+					rp1_usb0: usb@40200000 {
-+						compatible = "snps,dwc3";
-+						reg = <0x00 0x40200000  0x0 0x100000>;
-+						dr_mode = "host";
-+						usb3-lpm-capable;
-+						snps,dis_rxdet_inp3_quirk;
-+						snps,parkmode-disable-hs-quirk;
-+						snps,parkmode-disable-ss-quirk;
-+					};
-+
-+					/* RP1 USB1 (DWC3) */
-+					rp1_usb1: usb@40300000 {
-+						compatible = "snps,dwc3";
-+						reg = <0x00 0x40300000  0x0 0x100000>;
-+						dr_mode = "host";
-+						usb3-lpm-capable;
-+						snps,dis_rxdet_inp3_quirk;
-+						snps,parkmode-disable-hs-quirk;
-+						snps,parkmode-disable-ss-quirk;
-+					};
-+				};
-+			};
-+		};
-+	};
-+};
-+
-+#include "bcm2712-rpi-5-b-u-boot.dtsi"
 diff --git a/arch/arm/mach-bcm283x/Kconfig b/arch/arm/mach-bcm283x/Kconfig
-index d9303e8c281..e7e47b1166d 100644
+index d9303e8c281..14ae1bcee2e 100644
 --- a/arch/arm/mach-bcm283x/Kconfig
 +++ b/arch/arm/mach-bcm283x/Kconfig
-@@ -56,6 +56,10 @@ config BCM2711_64B
+@@ -56,6 +56,11 @@ config BCM2711_64B
  	select BLOBLIST_ALLOC if GENERATE_ACPI_TABLE
  	select BLOBLIST_TABLES if GENERATE_ACPI_TABLE
  
 +config BCM2712
 +	bool "Broadcom BCM2712 SoC support"
 +	depends on ARCH_BCM283X
++	imply OF_UPSTREAM
 +
  menu "Broadcom BCM283X family"
  	depends on ARCH_BCM283X
@@ -398,10 +195,10 @@ index 7a1de22e0ae..97a6b9aa5b3 100644
  		.phys = 0x107c000000UL,
  		.size = 0x0004000000UL,
 diff --git a/board/raspberrypi/rpi/rpi.c b/board/raspberrypi/rpi/rpi.c
-index f9b643555dd..58f383be3de 100644
+index f9b643555dd..8523b7c5ed5 100644
 --- a/board/raspberrypi/rpi/rpi.c
 +++ b/board/raspberrypi/rpi/rpi.c
-@@ -20,6 +20,7 @@
+@@ -20,12 +20,16 @@
  #include <asm/arch/sdhci.h>
  #include <asm/global_data.h>
  #include <dm/platform_data/serial_bcm283x_mu.h>
@@ -409,7 +206,16 @@ index f9b643555dd..58f383be3de 100644
  #ifdef CONFIG_ARM64
  #include <asm/armv8/mmu.h>
  #endif
-@@ -532,6 +533,10 @@ static void get_board_revision(void)
+ #include <watchdog.h>
+ #include <dm/pinctrl.h>
+ #include <dm/ofnode.h>
++#include <dm/device-internal.h>
++#include <dm/uclass.h>
++#include <nvme.h>
+ #include <acpi/acpi_table.h>
+ #include <acpi/acpigen.h>
+ #include <dm/lists.h>
+@@ -532,6 +536,10 @@ static void get_board_revision(void)
  		model = &models[rev_type];
  	}
  
@@ -420,7 +226,7 @@ index f9b643555dd..58f383be3de 100644
  	printf("RPI %s (0x%x)\n", model->name, revision);
  }
  
-@@ -611,6 +616,10 @@ void  update_fdt_from_fw(void *fdt, void *fw_fdt)
+@@ -611,6 +619,10 @@ void  update_fdt_from_fw(void *fdt, void *fw_fdt)
  	/* address of the PHY device as provided by the firmware  */
  	copy_property(fdt, fw_fdt, "ethernet0/mdio@e14/ethernet-phy@1", "reg");
  
@@ -431,7 +237,7 @@ index f9b643555dd..58f383be3de 100644
  	/* Bluetooth device address as provided by the firmware */
  	copy_property(fdt, fw_fdt, "/soc/serial@7e201000/bluetooth", "local-bd-address");
  
-@@ -644,6 +653,40 @@ int ft_board_setup(void *blob, struct bd_info *bd)
+@@ -644,6 +656,66 @@ int ft_board_setup(void *blob, struct bd_info *bd)
  	return 0;
  }
  
@@ -462,8 +268,34 @@ index f9b643555dd..58f383be3de 100644
 +
 +	err = dm_pci_find_device(PCI_VENDOR_ID_RPI, PCI_DEVICE_ID_RP1_C0,
 +				 0, &dev);
-+	if (err)
++	if (err) {
 +		printf("RPI: RP1 device not found\n");
++		return 0;
++	}
++
++	/* Probe the RP1 MFD device to initialize its children
++	 * (GPIO, clocks, UART, USB, Ethernet, etc.)
++	 */
++	err = device_probe(dev);
++	if (err) {
++		printf("RPI: Failed to probe RP1 device: %d\n", err);
++		return err;
++	}
++
++	printf("RPI: RP1 initialized successfully\n");
++
++#if defined(CONFIG_NVME)
++	/* Scan for NVME devices after RP1 initialization
++	 * This ensures NVME devices on RP1 PCIe are discovered
++	 */
++	err = nvme_scan_namespace();
++	if (err && err != -ENODEV) {
++		printf("RPI: NVME scan failed: %d\n", err);
++		/* Don't fail boot if NVME scan fails */
++	} else if (!err) {
++		printf("RPI: NVME devices scanned\n");
++	}
++#endif
 +
 +	return 0;
 +}
@@ -473,7 +305,7 @@ index f9b643555dd..58f383be3de 100644
  static bool is_rpi4(void)
  {
 diff --git a/board/raspberrypi/rpi/rpi.env b/board/raspberrypi/rpi/rpi.env
-index 9ac9d6768ca..2f1c92b1486 100644
+index 9ac9d6768ca..f879df109ac 100644
 --- a/board/raspberrypi/rpi/rpi.env
 +++ b/board/raspberrypi/rpi/rpi.env
 @@ -77,4 +77,4 @@ pxefile_addr_r=0x05500000
@@ -481,21 +313,24 @@ index 9ac9d6768ca..2f1c92b1486 100644
  ramdisk_addr_r=0x05700000
  
 -boot_targets=mmc usb pxe dhcp
-+boot_targets=mmc nvme usb
++boot_targets=mmc nvme usb pxe dhcp
 diff --git a/configs/rpi_5_defconfig b/configs/rpi_5_defconfig
 new file mode 100644
-index 00000000000..a3e1708b388
+index 00000000000..119aea50582
 --- /dev/null
 +++ b/configs/rpi_5_defconfig
-@@ -0,0 +1,99 @@
+@@ -0,0 +1,110 @@
 +CONFIG_ARM=y
 +CONFIG_POSITION_INDEPENDENT=y
 +CONFIG_ARCH_BCM283X=y
 +CONFIG_TARGET_RPI_ARM64=y
 +CONFIG_NR_DRAM_BANKS=8
 +CONFIG_ENV_SIZE=0x4000
-+CONFIG_DEFAULT_DEVICE_TREE="bcm2712-rpi-5-b"
++CONFIG_OF_UPSTREAM=y
++CONFIG_DEFAULT_DEVICE_TREE="broadcom/bcm2712-rpi-5-b"
 +CONFIG_OF_LIBFDT_OVERLAY=y
++CONFIG_OF_BOARD=y
++CONFIG_OF_HAS_PRIOR_STAGE=y
 +CONFIG_DM_RESET=y
 +CONFIG_SYS_LOAD_ADDR=0x1000000
 +CONFIG_PCI=y
@@ -579,16 +414,24 @@ index 00000000000..a3e1708b388
 +CONFIG_CMD_USB_MASS_STORAGE=y
 +# Boot config
 +CONFIG_BOOTSTD=y
++CONFIG_BOOTSTD_FULL=y
 +CONFIG_BOOTMETH_DISTRO=n
 +CONFIG_BOOTMETH_DISTRO_PXE=n
 +CONFIG_BOOTMETH_EFILOADER=y
++CONFIG_BOOTMETH_EFI_BOOTMGR=y
 +CONFIG_BOOTMETH_GLOBAL=n
 +CONFIG_BOOTMETH_SCRIPT=n
 +CONFIG_PXE_UTILS=n
-+# Disable EFI bootmanager (reserves memory on 0x00080000 -> prevents continuing after being successful)
-+CONFIG_CMD_BOOTEFI_BOOTMGR=n
++# Logging
++CONFIG_LOG=y
++CONFIG_LOG_MAX_LEVEL=7
++CONFIG_LOG_DEFAULT_LEVEL=7
++CONFIG_LOG_CONSOLE=y
++CONFIG_LOGF_FILE=y
++CONFIG_LOGF_LINE=y
++CONFIG_LOGF_FUNC=y
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
-index 69e8e72c5d7..c2d03324385 100644
+index 69e8e72c5d7..ebd7f3c9eeb 100644
 --- a/configs/rpi_arm64_defconfig
 +++ b/configs/rpi_arm64_defconfig
 @@ -9,17 +9,19 @@ CONFIG_OF_LIBFDT_OVERLAY=y
@@ -612,7 +455,7 @@ index 69e8e72c5d7..c2d03324385 100644
  CONFIG_SYS_PROMPT="U-Boot> "
  CONFIG_CMD_NVEDIT_EFI=y
  CONFIG_CMD_GPIO=y
-@@ -65,3 +67,29 @@ CONFIG_VIDEO_BCM2835=y
+@@ -65,3 +67,37 @@ CONFIG_VIDEO_BCM2835=y
  CONFIG_CONSOLE_SCROLL_LINES=10
  CONFIG_PHYS_TO_BUS=y
  # CONFIG_HEXDUMP is not set
@@ -642,6 +485,14 @@ index 69e8e72c5d7..c2d03324385 100644
 +CONFIG_PXE_UTILS=n
 +# Disable EFI bootmanager (reserves memory on 0x00080000 -> prevents continuing after being successful)
 +CONFIG_CMD_BOOTEFI_BOOTMGR=n
++# Logging
++CONFIG_LOG=y
++CONFIG_LOG_MAX_LEVEL=7
++CONFIG_LOG_DEFAULT_LEVEL=7
++CONFIG_LOG_CONSOLE=y
++CONFIG_LOGF_FILE=y
++CONFIG_LOGF_LINE=y
++CONFIG_LOGF_FUNC=y
 \ No newline at end of file
 diff --git a/drivers/clk/Kconfig b/drivers/clk/Kconfig
 index ae783254008..a7fbaacf018 100644
