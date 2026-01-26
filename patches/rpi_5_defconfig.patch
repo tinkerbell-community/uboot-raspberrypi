@@ -36,10 +36,10 @@ index 00000000000..38eec87271c
 +};
 diff --git a/arch/arm/dts/bcm2712-rpi-5-b.dts b/arch/arm/dts/bcm2712-rpi-5-b.dts
 new file mode 100644
-index 00000000000..0b90f34c20d
+index 00000000000..1515fb90395
 --- /dev/null
 +++ b/arch/arm/dts/bcm2712-rpi-5-b.dts
-@@ -0,0 +1,202 @@
+@@ -0,0 +1,198 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Minimal Device Tree stub for Raspberry Pi 5 Model B (BCM2712)
@@ -95,7 +95,7 @@ index 00000000000..0b90f34c20d
 +		#size-cells = <2>;
 +		ranges;
 +
-+		/* PCIe0 - M.2 NVMe slot */
++		/* PCIe0 - M.2 NVMe slot (Hat+) */
 +		pcie0: pcie@1000100000 {
 +			compatible = "brcm,bcm2712-pcie";
 +			reg = <0x10 0x00100000 0x00 0x9310>;
@@ -106,18 +106,16 @@ index 00000000000..0b90f34c20d
 +
 +			ranges =
 +				/* ~4GiB, 32-bit, non-prefetchable at PCIe 00_0000_0000 */
-+				<0x02000000 0x00 0x00000000 0x1f 0x00000000 0x00 0xfffffffc>,
++				<0x02000000 0x00 0x00000000 0x17 0x00000000 0x00 0xfffffffc>,
 +				/* 12GiB, 64-bit, prefetchable at PCIe 04_0000_0000 */
-+				<0x43000000 0x04 0x00000000 0x1c 0x00000000 0x03 0x00000000>;
++				<0x43000000 0x04 0x00000000 0x14 0x00000000 0x03 0x00000000>;
 +
 +			dma-ranges =
-+				/* 4MiB, 32-bit, non-prefetchable at PCIe 00_0000_0000 */
-+				<0x02000000 0x00 0x00000000 0x1f 0x00000000 0x00 0x00400000>,
 +				/* 64GiB, 64-bit, prefetchable at PCIe 10_0000_0000 */
 +				<0x43000000 0x10 0x00000000 0x00 0x00000000 0x10 0x00000000>;
 +		};
 +
-+		/* PCIe1 - External PCIe slot */
++		/* PCIe1 - External PCIe slot (requires Hat+ for physical access) */
 +		pcie1: pcie@1000110000 {
 +			compatible = "brcm,bcm2712-pcie";
 +			reg = <0x10 0x00110000 0x00 0x9310>;
@@ -128,15 +126,13 @@ index 00000000000..0b90f34c20d
 +
 +			ranges =
 +				/* ~4GiB, 32-bit, non-prefetchable at PCIe 00_0000_0000 */
-+				<0x02000000 0x00 0x00000000 0x1f 0x00000000 0x00 0xfffffffc>,
++				<0x02000000 0x00 0x00000000 0x1b 0x00000000 0x00 0xfffffffc>,
 +				/* 12GiB, 64-bit, prefetchable at PCIe 04_0000_0000 */
-+				<0x43000000 0x04 0x00000000 0x1c 0x00000000 0x03 0x00000000>;
++				<0x43000000 0x04 0x00000000 0x18 0x00000000 0x03 0x00000000>;
 +
 +			dma-ranges =
-+				/* 4MiB, 32-bit, non-prefetchable at PCIe 00_0000_0000 */
-+				<0x02000000 0x00 0x00000000 0x1f 0x00000000 0x00 0x00400000>,
-+				/* 64GiB, 64-bit, prefetchable at PCIe 10_0000_0000 */
-+				<0x43000000 0x10 0x00000000 0x00 0x00000000 0x10 0x00000000>;
++				/* 64GiB, 64-bit, non-prefetchable at PCIe 10_0000_0000 */
++				<0x03000000 0x10 0x00000000 0x00 0x00000000 0x10 0x00000000>;
 +		};
 +
 +		/* PCIe2 - RP1 southbridge connection */
