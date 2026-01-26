@@ -32,5 +32,7 @@ dtoverlay=disable-bt-pi5
 dtoverlay=disable-wifi-pi5
 # Disable console output for debugging
 enable_uart=0
+dtparam=pciex1
+dtparam=pciex1_gen=3
 
 [all]

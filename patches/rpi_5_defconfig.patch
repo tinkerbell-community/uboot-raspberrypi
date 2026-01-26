@@ -433,7 +433,7 @@ index 9ac9d6768ca..2f1c92b1486 100644
 +boot_targets=mmc nvme usb
 diff --git a/configs/rpi_5_defconfig b/configs/rpi_5_defconfig
 new file mode 100644
-index 00000000000..21233572918
+index 00000000000..a3e1708b388
 --- /dev/null
 +++ b/configs/rpi_5_defconfig
 @@ -0,0 +1,99 @@
@@ -455,7 +455,7 @@ index 00000000000..21233572918
 +CONFIG_OF_BOARD_SETUP=y
 +CONFIG_FDT_SIMPLEFB=y
 +CONFIG_USE_PREBOOT=y
-+CONFIG_PREBOOT="pci enum; nvme scan; usb start; bootflow scan;"
++CONFIG_PREBOOT="pci enum; nvme scan; usb start;"
 +CONFIG_SYS_PBSIZE=1049
 +# CONFIG_DISPLAY_CPUINFO is not set
 +# CONFIG_DISPLAY_BOARDINFO is not set
