@@ -358,7 +358,7 @@ index 7a1de22e0ae..97a6b9aa5b3 100644
  		.phys = 0x107c000000UL,
  		.size = 0x0004000000UL,
 diff --git a/board/raspberrypi/rpi/rpi.c b/board/raspberrypi/rpi/rpi.c
-index f9b643555dd..0227c97a192 100644
+index f9b643555dd..58f383be3de 100644
 --- a/board/raspberrypi/rpi/rpi.c
 +++ b/board/raspberrypi/rpi/rpi.c
 @@ -20,6 +20,7 @@
@@ -380,7 +380,18 @@ index f9b643555dd..0227c97a192 100644
  	printf("RPI %s (0x%x)\n", model->name, revision);
  }
  
-@@ -644,6 +649,40 @@ int ft_board_setup(void *blob, struct bd_info *bd)
+@@ -611,6 +616,10 @@ void  update_fdt_from_fw(void *fdt, void *fw_fdt)
+ 	/* address of the PHY device as provided by the firmware  */
+ 	copy_property(fdt, fw_fdt, "ethernet0/mdio@e14/ethernet-phy@1", "reg");
+ 
++	/* RP1 ethernet MAC address as provided by the firmware (RPi 5) */
++	copy_property(fdt, fw_fdt, "ethernet0", "local-mac-address");
++	copy_property(fdt, fw_fdt, "ethernet0", "mac-address");
++
+ 	/* Bluetooth device address as provided by the firmware */
+ 	copy_property(fdt, fw_fdt, "/soc/serial@7e201000/bluetooth", "local-bd-address");
+ 
+@@ -644,6 +653,40 @@ int ft_board_setup(void *blob, struct bd_info *bd)
  	return 0;
  }
  
@@ -1518,7 +1529,7 @@ index 4fda1b0c28c..8ab14396cd2 100644
  	  The Cadence MACB ethernet interface is found on many Atmel
  	  AT91 and SAMA5 parts.  This driver also supports the Cadence
 diff --git a/drivers/net/macb.c b/drivers/net/macb.c
-index cbf5f605518..d5d8dbc48c3 100644
+index cbf5f605518..8b0e5976e26 100644
 --- a/drivers/net/macb.c
 +++ b/drivers/net/macb.c
 @@ -31,6 +31,7 @@
@@ -1827,7 +1838,17 @@ index cbf5f605518..d5d8dbc48c3 100644
  
  	ret = mdio_register(macb->bus);
  	if (ret < 0)
-@@ -1299,6 +1382,7 @@ static int macb_eth_of_to_plat(struct udevice *dev)
+@@ -1272,6 +1355,9 @@ static int macb_eth_remove(struct udevice *dev)
+ {
+ 	struct macb_device *macb = dev_get_priv(dev);
+ 
++	/* Halt the ethernet controller before removal to ensure clean handoff to kernel */
++	_macb_halt(macb);
++
+ #ifdef CONFIG_PHYLIB
+ 	free(macb->phydev);
+ #endif
+@@ -1299,6 +1385,7 @@ static int macb_eth_of_to_plat(struct udevice *dev)
  	void *blob = (void *)gd->fdt_blob;
  	int node = dev_of_offset(dev);
  	int fl_node, speed_fdt;
@@ -1835,7 +1856,7 @@ index cbf5f605518..d5d8dbc48c3 100644
  
  	/* fetch 'fixed-link' property */
  	fl_node = fdt_subnode_offset(blob, node, "fixed-link");
-@@ -1322,6 +1406,16 @@ static int macb_eth_of_to_plat(struct udevice *dev)
+@@ -1322,6 +1409,16 @@ static int macb_eth_of_to_plat(struct udevice *dev)
  	if (!pdata->iobase)
  		return -EINVAL;
  
@@ -1851,6 +1872,29 @@ index cbf5f605518..d5d8dbc48c3 100644
 +
  	return macb_late_eth_of_to_plat(dev);
  }
+ 
+@@ -1360,6 +1457,13 @@ static const struct macb_config sama7g5_emac_config = {
+ 	.usrio = &sama7g5_usrio,
+ };
+ 
++static const struct macb_config rp1_gem_config = {
++	.dma_burst_length = 16,
++	.hw_dma_cap = HW_DMA_CAP_64B,
++	.clk_init = NULL,
++	.usrio = &sama7g5_usrio,
++};
++
+ static const struct udevice_id macb_eth_ids[] = {
+ 	{ .compatible = "cdns,macb" },
+ 	{ .compatible = "cdns,at91sam9260-macb" },
+@@ -1374,6 +1478,8 @@ static const struct udevice_id macb_eth_ids[] = {
+ 	{ .compatible = "cdns,zynq-gem" },
+ 	{ .compatible = "sifive,fu540-c000-gem",
+ 	  .data = (ulong)&sifive_config },
++	{ .compatible = "raspberrypi,rp1-gem",
++	  .data = (ulong)&rp1_gem_config },
+ 	{ }
+ };
  
 diff --git a/drivers/net/macb.h b/drivers/net/macb.h
 index 0eb90574618..a8f4fc494a6 100644
