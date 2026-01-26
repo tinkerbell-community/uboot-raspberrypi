@@ -25,11 +25,11 @@ dtoverlay=disable-wifi
 dtoverlay=vc4-kms-v3d-pi4,noaudio
 
 [pi5]
+kernel=u-boot-rpi5.bin
 # Disable Bluetooth.
 dtoverlay=disable-bt-pi5
 # Disable Wireless Lan.
 dtoverlay=disable-wifi-pi5
-kernel=u-boot-rpi5.bin
 # Disable console output for debugging
 enable_uart=0
 
