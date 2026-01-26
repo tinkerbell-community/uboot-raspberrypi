@@ -161,32 +161,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: rpi-firmware
-          path: |
-            firmware/boot/
-            !firmware/boot/bcm2712*.dtb
-          retention-days: 1
-          if-no-files-found: error
-
-  checkout-firmware-next:
-    needs: determine-version
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
-    steps:
-      - name: Checkout Raspberry Pi firmware
-        uses: actions/checkout@v4
-        with:
-          repository: raspberrypi/firmware
-          fetch-depth: 1
-          path: firmware
-          ref: next
-
-      - name: Upload firmware
-        uses: actions/upload-artifact@v4
-        with:
-          name: rpi-firmware-next
-          path: firmware/boot/bcm2712*.dtb
+          path: firmware/boot/
           retention-days: 1
           if-no-files-found: error
 
@@ -380,9 +355,6 @@ jobs:
 
           # Copy firmware files
           cp -r artifacts/rpi-firmware/* build/
-
-          # Copy rpi 5 firmware files
-          cp -r artifacts/rpi-firmware-next/* build/
 
           # Copy iPXE binary
           mkdir -p build/EFI/BOOT
