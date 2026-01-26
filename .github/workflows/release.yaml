@@ -164,7 +164,7 @@ jobs:
           path: |
             firmware/boot/
             !firmware/boot/kernel*
-          #  !firmware/boot/bcm2712*
+            !firmware/boot/bcm2712*
           retention-days: 1
           if-no-files-found: error
 
