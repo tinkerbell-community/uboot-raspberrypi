@@ -484,7 +484,7 @@ index 9ac9d6768ca..2f1c92b1486 100644
 +boot_targets=mmc nvme usb
 diff --git a/configs/rpi_5_defconfig b/configs/rpi_5_defconfig
 new file mode 100644
-index 00000000000..a3e1708b388
+index 00000000000..80c44092862
 --- /dev/null
 +++ b/configs/rpi_5_defconfig
 @@ -0,0 +1,99 @@
@@ -579,14 +579,14 @@ index 00000000000..a3e1708b388
 +CONFIG_CMD_USB_MASS_STORAGE=y
 +# Boot config
 +CONFIG_BOOTSTD=y
++CONFIG_BOOTSTD_FULL=y
 +CONFIG_BOOTMETH_DISTRO=n
 +CONFIG_BOOTMETH_DISTRO_PXE=n
 +CONFIG_BOOTMETH_EFILOADER=y
++CONFIG_BOOTMETH_EFI_BOOTMGR=y
 +CONFIG_BOOTMETH_GLOBAL=n
 +CONFIG_BOOTMETH_SCRIPT=n
 +CONFIG_PXE_UTILS=n
-+# Disable EFI bootmanager (reserves memory on 0x00080000 -> prevents continuing after being successful)
-+CONFIG_CMD_BOOTEFI_BOOTMGR=n
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
 index 69e8e72c5d7..c2d03324385 100644
 --- a/configs/rpi_arm64_defconfig
