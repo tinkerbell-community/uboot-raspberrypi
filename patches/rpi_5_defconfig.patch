@@ -307,7 +307,7 @@ index a86875b1833..cf354e33b8e 100644
  #define PCIE_MISC_HARD_PCIE_HARD_DEBUG_SERDES_IDDQ_MASK         0x08000000
  
 diff --git a/arch/arm/mach-bcm283x/init.c b/arch/arm/mach-bcm283x/init.c
-index 7a1de22e0ae..b5fd6ecbcfb 100644
+index 7a1de22e0ae..97a6b9aa5b3 100644
 --- a/arch/arm/mach-bcm283x/init.c
 +++ b/arch/arm/mach-bcm283x/init.c
 @@ -18,7 +18,7 @@
@@ -319,7 +319,7 @@ index 7a1de22e0ae..b5fd6ecbcfb 100644
  
  static struct mm_region bcm283x_mem_map[MEM_MAP_MAX_ENTRIES] = {
  	{
-@@ -76,15 +76,40 @@ static struct mm_region bcm2712_mem_map[MEM_MAP_MAX_ENTRIES] = {
+@@ -76,15 +76,35 @@ static struct mm_region bcm2712_mem_map[MEM_MAP_MAX_ENTRIES] = {
  		.attrs = PTE_BLOCK_MEMTYPE(MT_NORMAL) |
  			 PTE_BLOCK_INNER_SHARE
  	}, {
@@ -329,34 +329,28 @@ index 7a1de22e0ae..b5fd6ecbcfb 100644
 +		 */
  		.virt = 0x1000000000UL,
  		.phys = 0x1000000000UL,
--		.size = 0x0002000000UL,
 +		.size = 0x0100000000UL,
++		.attrs = PTE_BLOCK_MEMTYPE(MT_DEVICE_NGNRNE) |
++			 PTE_BLOCK_NON_SHARE |
++			 PTE_BLOCK_PXN | PTE_BLOCK_UXN
++		}, {
++		/* Beginning of PCIe section for NVMe */
++		.virt = 0x1b80000000UL,
++		.phys = 0x1b80000000UL,
++		.size = 0x80000000UL,
++		.attrs = PTE_BLOCK_MEMTYPE(MT_DEVICE_NGNRNE) |
++			 PTE_BLOCK_NON_SHARE |
++			 PTE_BLOCK_PXN | PTE_BLOCK_UXN
++	}, {
++		/* Beginning of PCIe section */
++		.virt = 0x1f00000000UL,
++		.phys = 0x1f00000000UL,
+ 		.size = 0x0002000000UL,
  		.attrs = PTE_BLOCK_MEMTYPE(MT_DEVICE_NGNRNE) |
  			 PTE_BLOCK_NON_SHARE |
  			 PTE_BLOCK_PXN | PTE_BLOCK_UXN
  	}, {
 -		/* SoC bus */
-+		/* PCIe2 prefetchable range - 12GiB window for RP1 and devices
-+		 * CPU addresses 0x1c00000000-0x1f00000000 map to PCIe 04_0000_0000
-+		 */
-+		.virt = 0x1c00000000UL,
-+		.phys = 0x1c00000000UL,
-+		.size = 0x0300000000UL,
-+		.attrs = PTE_BLOCK_MEMTYPE(MT_DEVICE_NGNRNE) |
-+			 PTE_BLOCK_NON_SHARE |
-+			 PTE_BLOCK_PXN | PTE_BLOCK_UXN
-+	}, {
-+		/* PCIe2 non-prefetchable range - ~4GiB window for PCIe devices
-+		 * CPU addresses 0x1f00000000+ map to PCIe 00_0000_0000
-+		 * Includes RP1 BAR mappings and NVMe devices
-+		 */
-+		.virt = 0x1f00000000UL,
-+		.phys = 0x1f00000000UL,
-+		.size = 0x0100000000UL,
-+		.attrs = PTE_BLOCK_MEMTYPE(MT_DEVICE_NGNRNE) |
-+			 PTE_BLOCK_NON_SHARE |
-+			 PTE_BLOCK_PXN | PTE_BLOCK_UXN
-+	}, {
 +		/* SoC peripheral bus - UART, timers, GPIO, etc.
 +		 * Ranges from 0x107c000000, mapped to local 0x00000000
 +		 */
@@ -1375,7 +1369,7 @@ index 4454815a981..c81ee5789b5 100644
 +obj-$(CONFIG_MFD_RP1) += rp1.o
 diff --git a/drivers/mfd/rp1.c b/drivers/mfd/rp1.c
 new file mode 100644
-index 00000000000..b1dc3ae0efa
+index 00000000000..4d6d5b44c0f
 --- /dev/null
 +++ b/drivers/mfd/rp1.c
 @@ -0,0 +1,134 @@
@@ -1420,7 +1414,7 @@ index 00000000000..b1dc3ae0efa
 +
 +static u32 rp1_reg_read(struct rp1_dev *rp1, unsigned int base_addr, u32 offset)
 +{
-+	dma_addr_t phys = rp1_io_to_phys(rp1, base_addr);
++	resource_size_t phys = rp1_io_to_phys(rp1, base_addr);
 +	void __iomem *regblock = ioremap(phys, 0x1000);
 +	u32 value = readl(regblock + offset);
 +
@@ -1465,8 +1459,8 @@ index 00000000000..b1dc3ae0efa
 +	/* Get chip id */
 +	chip_id = rp1_reg_read(rp1, RP1_SYSINFO_BASE, SYSINFO_CHIP_ID_OFFSET);
 +	platform = rp1_reg_read(rp1, RP1_SYSINFO_BASE, SYSINFO_PLATFORM_OFFSET);
-+	dev_info(dev, "chip_id 0x%x%s\n", chip_id,
-+		 (platform & RP1_PLATFORM_FPGA) ? " FPGA" : "");
++	dev_dbg(dev, "chip_id 0x%x%s\n", chip_id,
++		(platform & RP1_PLATFORM_FPGA) ? " FPGA" : "");
 +
 +	if (chip_id != RP1_C0_CHIP_ID) {
 +		dev_err(dev, "wrong chip id (%x)\n", chip_id);
