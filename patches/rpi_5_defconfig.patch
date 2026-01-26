@@ -484,10 +484,10 @@ index 9ac9d6768ca..2f1c92b1486 100644
 +boot_targets=mmc nvme usb
 diff --git a/configs/rpi_5_defconfig b/configs/rpi_5_defconfig
 new file mode 100644
-index 00000000000..80c44092862
+index 00000000000..9542636d0e1
 --- /dev/null
 +++ b/configs/rpi_5_defconfig
-@@ -0,0 +1,99 @@
+@@ -0,0 +1,101 @@
 +CONFIG_ARM=y
 +CONFIG_POSITION_INDEPENDENT=y
 +CONFIG_ARCH_BCM283X=y
@@ -587,6 +587,8 @@ index 00000000000..80c44092862
 +CONFIG_BOOTMETH_GLOBAL=n
 +CONFIG_BOOTMETH_SCRIPT=n
 +CONFIG_PXE_UTILS=n
++CONFIG_OF_BOARD=y
++CONFIG_OF_HAS_PRIOR_STAGE=y
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
 index 69e8e72c5d7..c2d03324385 100644
 --- a/configs/rpi_arm64_defconfig
