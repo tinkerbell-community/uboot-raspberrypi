@@ -337,7 +337,7 @@ jobs:
           mkdir -p kernel-dts
 
           # Export container filesystem and extract device tree files
-          crane export --platform linux/arm64 ${{ env.TALOS_KERNEL_VERSION }} - | tar xz -C kernel-dts --strip-components=2 dtb/broadcom
+          crane export --platform linux/arm64 ${{ env.TALOS_KERNEL_VERSION }} - | tar xz -C kernel-dts - --strip-components=2 dtb/broadcom/bcm2*
 
           # Filter to only bcm27* files (bcm2711 for Pi 4, bcm2712 for Pi 5) and move to top level
           find kernel-dts -type f -name 'bcm27*.dtb' -exec sh -c 'mv "$1" kernel-dts/$(basename "$1")' _ {} \;
