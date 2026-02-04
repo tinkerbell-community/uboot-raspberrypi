@@ -46,7 +46,10 @@ kernel=u-boot-rpi5.bin
 # dtoverlay=disable-wifi-pi5
 # Disable console output for debugging
 enable_uart=0
-# dtparam=pciex1
+# Crucial for NVMe/PCIe stability
+dtparam=pciex1
+dtparam=nvme
+framebuffer_depth=16
 # dtparam=pciex1_gen=3
 
 [all]
