@@ -327,9 +327,6 @@ jobs:
       packages: read
 
     steps:
-      - name: Install crane
-        uses: imjasonh/setup-crane@v0.4
-
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -341,23 +338,24 @@ jobs:
         run: |
           echo "Extracting DTBs from: ${{ env.TALOS_KERNEL_VERSION }}"
 
-          # Export the entire image filesystem as a tarball
-          crane export ${{ env.TALOS_KERNEL_VERSION }} - | tar -xOf - dtb/broadcom > broadcom.tar || true
+          # Pull the image
+          docker pull ${{ env.TALOS_KERNEL_VERSION }}
+
+          # Create a container (scratch images need dummy entrypoint)
+          CONTAINER_ID=$(docker create --entrypoint /bin/sh ${{ env.TALOS_KERNEL_VERSION }} -c "true")
 
           # Create output directory
           mkdir -p kernel-dts
 
-          # Extract the broadcom directory from the tar stream
-          crane export ${{ env.TALOS_KERNEL_VERSION }} kernel-fs.tar
+          # Copy the entire broadcom directory from the container
+          docker cp ${CONTAINER_ID}:/dtb/broadcom kernel-dts-tmp
 
-          # Extract only bcm2712* device tree files from /dtb/broadcom/
-          tar -xf kernel-fs.tar -C . --wildcards 'dtb/broadcom/bcm2712*.dtb'
+          # Filter to only bcm2712* files
+          find kernel-dts-tmp -type f -name 'bcm2712*.dtb' -exec mv {} kernel-dts/ \;
 
-          # Move extracted files to output directory
-          if [ -d dtb/broadcom ]; then
-            mv dtb/broadcom/bcm2712*.dtb kernel-dts/
-            rm -rf dtb kernel-fs.tar
-          fi
+          # Cleanup
+          rm -rf kernel-dts-tmp
+          docker rm ${CONTAINER_ID}
 
           # Verify we got the files
           echo "Extracted device tree files:"
