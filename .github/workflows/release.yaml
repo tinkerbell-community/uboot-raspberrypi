@@ -344,13 +344,14 @@ jobs:
           # Create output directory
           mkdir -p kernel-dts
 
-          # Extract bcm2712* device tree files from /dtb/broadcom/
-          docker cp ${CONTAINER_ID}:/dtb/broadcom/. kernel-dts/ || true
+          # Extract all broadcom device tree files from /dtb/broadcom
+          docker cp ${CONTAINER_ID}:/dtb/broadcom kernel-dts-tmp/
 
-          # Filter to only bcm2712* files
-          find kernel-dts -type f ! -name 'bcm2712*' -delete
+          # Filter to only bcm2712* files and move to final directory
+          find kernel-dts-tmp/broadcom -type f -name 'bcm2712*' -exec mv {} kernel-dts/ \;
 
-          # Cleanup container
+          # Cleanup
+          rm -rf kernel-dts-tmp
           docker rm ${CONTAINER_ID}
 
           # Verify we got the files
