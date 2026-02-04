@@ -327,6 +327,9 @@ jobs:
       packages: read
 
     steps:
+      - name: Install crane
+        uses: imjasonh/setup-crane@v0.4
+
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -334,25 +337,27 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Pull Talos kernel image and extract device tree files
+      - name: Extract device tree files from Talos kernel image
         run: |
-          echo "Pulling Talos kernel: ${{ env.TALOS_KERNEL_VERSION }}"
+          echo "Extracting DTBs from: ${{ env.TALOS_KERNEL_VERSION }}"
 
-          # Create temporary container to extract files (need dummy command for scratch images)
-          CONTAINER_ID=$(docker create --entrypoint /bin/sh ${{ env.TALOS_KERNEL_VERSION }} -c "true")
+          # Export the entire image filesystem as a tarball
+          crane export ${{ env.TALOS_KERNEL_VERSION }} - | tar -xOf - dtb/broadcom > broadcom.tar || true
 
           # Create output directory
           mkdir -p kernel-dts
 
-          # Extract all broadcom device tree files from /dtb/broadcom
-          docker cp ${CONTAINER_ID}:/dtb/broadcom kernel-dts-tmp/
+          # Extract the broadcom directory from the tar stream
+          crane export ${{ env.TALOS_KERNEL_VERSION }} kernel-fs.tar
 
-          # Filter to only bcm2712* files and move to final directory
-          find kernel-dts-tmp/broadcom -type f -name 'bcm2712*' -exec mv {} kernel-dts/ \;
+          # Extract only bcm2712* device tree files from /dtb/broadcom/
+          tar -xf kernel-fs.tar -C . --wildcards 'dtb/broadcom/bcm2712*.dtb'
 
-          # Cleanup
-          rm -rf kernel-dts-tmp
-          docker rm ${CONTAINER_ID}
+          # Move extracted files to output directory
+          if [ -d dtb/broadcom ]; then
+            mv dtb/broadcom/bcm2712*.dtb kernel-dts/
+            rm -rf dtb kernel-fs.tar
+          fi
 
           # Verify we got the files
           echo "Extracted device tree files:"
