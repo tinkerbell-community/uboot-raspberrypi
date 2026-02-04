@@ -11,7 +11,7 @@ on:
       rpi_firmware_version:
         description: "Raspberry Pi firmware version"
         required: false
-        default: "1.20250915"
+        default: "next"
         type: string
   push:
     tags:
@@ -20,7 +20,7 @@ on:
 env:
   UBOOT_VERSION: ${{ inputs.uboot_version || 'v2026.01' }}
   UBOOT_DIR: ${{ github.workspace }}/u-boot
-  RPI_FIRMWARE_VERSION: ${{ inputs.rpi_firmware_version || '1.20250915' }}
+  RPI_FIRMWARE_VERSION: ${{ inputs.rpi_firmware_version || 'next' }}
   TALOS_KERNEL_VERSION: ghcr.io/siderolabs/kernel:v1.12.0-32-g4f8efaf
 
 jobs:
@@ -165,7 +165,7 @@ jobs:
           path: |
             firmware/boot/
             !firmware/boot/kernel*
-            !firmware/boot/bcm2712*
+            !firmware/boot/bcm27*
           retention-days: 1
           if-no-files-found: error
 
@@ -324,45 +324,33 @@ jobs:
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
-      packages: read
 
     steps:
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup crane
+        uses: imjasonh/setup-crane@v0.4
 
       - name: Extract device tree files from Talos kernel image
         run: |
           echo "Extracting DTBs from: ${{ env.TALOS_KERNEL_VERSION }}"
 
-          # Pull the image
-          docker pull ${{ env.TALOS_KERNEL_VERSION }}
-
-          # Create a container (scratch images need dummy entrypoint)
-          CONTAINER_ID=$(docker create --entrypoint /bin/sh ${{ env.TALOS_KERNEL_VERSION }} -c "true")
-
           # Create output directory
           mkdir -p kernel-dts
 
-          # Copy the entire broadcom directory from the container
-          docker cp ${CONTAINER_ID}:/dtb/broadcom kernel-dts-tmp
+          # Export container filesystem and extract device tree files
+          crane export --platform linux/arm64 ${{ env.TALOS_KERNEL_VERSION }} - | tar xz -C kernel-dts --strip-components=2 dtb/broadcom
 
-          # Filter to only bcm2712* files
-          find kernel-dts-tmp -type f -name 'bcm2712*.dtb' -exec mv {} kernel-dts/ \;
+          # Filter to only bcm27* files (bcm2711 for Pi 4, bcm2712 for Pi 5) and move to top level
+          find kernel-dts -type f -name 'bcm27*.dtb' -exec sh -c 'mv "$1" kernel-dts/$(basename "$1")' _ {} \;
 
-          # Cleanup
-          rm -rf kernel-dts-tmp
-          docker rm ${CONTAINER_ID}
+          # Remove any extracted subdirectories
+          find kernel-dts -mindepth 1 -type d -exec rm -rf {} + 2>/dev/null || true
 
           # Verify we got the files
           echo "Extracted device tree files:"
           ls -lah kernel-dts/
 
           if [ -z "$(ls -A kernel-dts/)" ]; then
-            echo "ERROR: No bcm2712* device tree files found"
+            echo "ERROR: No bcm27* device tree files found"
             exit 1
           fi
 

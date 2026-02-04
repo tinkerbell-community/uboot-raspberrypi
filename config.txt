@@ -40,6 +40,7 @@ dtoverlay=vc4-kms-v3d-pi4,noaudio
 
 [pi5]
 kernel=u-boot-rpi5.bin
+device_tree=bcm2712-rpi-5-b.dtb
 # Disable Bluetooth.
 # dtoverlay=disable-bt-pi5
 # Disable Wireless Lan.
