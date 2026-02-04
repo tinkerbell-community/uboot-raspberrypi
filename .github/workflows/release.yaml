@@ -21,6 +21,7 @@ env:
   UBOOT_VERSION: ${{ inputs.uboot_version || 'v2026.01' }}
   UBOOT_DIR: ${{ github.workspace }}/u-boot
   RPI_FIRMWARE_VERSION: ${{ inputs.rpi_firmware_version || '1.20250915' }}
+  TALOS_KERNEL_VERSION: ghcr.io/siderolabs/kernel:v1.12.0-32-g4f8efaf
 
 jobs:
   determine-version:
@@ -318,8 +319,59 @@ jobs:
           overwrite: true
           if-no-files-found: error
 
+  fetch-kernel-dts:
+    needs: determine-version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull Talos kernel image and extract device tree files
+        run: |
+          echo "Pulling Talos kernel: ${{ env.TALOS_KERNEL_VERSION }}"
+
+          # Create temporary container to extract files
+          CONTAINER_ID=$(docker create ${{ env.TALOS_KERNEL_VERSION }})
+
+          # Create output directory
+          mkdir -p kernel-dts
+
+          # Extract bcm2712* device tree files from /dtb/broadcom/
+          docker cp ${CONTAINER_ID}:/dtb/broadcom/. kernel-dts/ || true
+
+          # Filter to only bcm2712* files
+          find kernel-dts -type f ! -name 'bcm2712*' -delete
+
+          # Cleanup container
+          docker rm ${CONTAINER_ID}
+
+          # Verify we got the files
+          echo "Extracted device tree files:"
+          ls -lah kernel-dts/
+
+          if [ -z "$(ls -A kernel-dts/)" ]; then
+            echo "ERROR: No bcm2712* device tree files found"
+            exit 1
+          fi
+
+      - name: Upload kernel device tree files
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-dts
+          path: kernel-dts/
+          retention-days: 1
+          if-no-files-found: error
+
   build-image:
-    needs: [determine-version, build-uboot, checkout-firmware, build-ipxe-arm64, prepare-config]
+    needs: [determine-version, build-uboot, checkout-firmware, build-ipxe-arm64, prepare-config, fetch-kernel-dts]
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: write
@@ -358,6 +410,13 @@ jobs:
 
           # Copy firmware files
           cp -r artifacts/rpi-firmware/* build/
+
+          # Copy upstream Talos kernel device tree files (bcm2712*)
+          # These replace the downstream Pi firmware DTBs which are incompatible with mainline
+          echo "Copying upstream Talos kernel device tree files..."
+          cp artifacts/kernel-dts/* build/
+          echo "Kernel DTB files:"
+          ls -lah build/bcm2712*
 
           # Copy iPXE binary
           mkdir -p build/EFI/BOOT
