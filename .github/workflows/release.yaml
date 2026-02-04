@@ -338,8 +338,8 @@ jobs:
         run: |
           echo "Pulling Talos kernel: ${{ env.TALOS_KERNEL_VERSION }}"
 
-          # Create temporary container to extract files
-          CONTAINER_ID=$(docker create ${{ env.TALOS_KERNEL_VERSION }})
+          # Create temporary container to extract files (need dummy command for scratch images)
+          CONTAINER_ID=$(docker create --entrypoint /bin/sh ${{ env.TALOS_KERNEL_VERSION }} -c "true")
 
           # Create output directory
           mkdir -p kernel-dts
