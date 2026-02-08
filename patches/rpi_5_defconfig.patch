@@ -207,7 +207,7 @@ index 7a1de22e0ae..97a6b9aa5b3 100644
  		.phys = 0x107c000000UL,
  		.size = 0x0004000000UL,
 diff --git a/board/raspberrypi/rpi/rpi.c b/board/raspberrypi/rpi/rpi.c
-index f9b643555dd..7b84c68a06f 100644
+index f9b643555dd..ab39a8e95dd 100644
 --- a/board/raspberrypi/rpi/rpi.c
 +++ b/board/raspberrypi/rpi/rpi.c
 @@ -20,12 +20,16 @@
@@ -238,15 +238,20 @@ index f9b643555dd..7b84c68a06f 100644
  	printf("RPI %s (0x%x)\n", model->name, revision);
  }
  
-@@ -544,15 +552,49 @@ int board_init(void)
- 	return bcm2835_power_on_module(BCM2835_MBOX_POWER_DEVID_USB_HCD);
+@@ -557,6 +565,38 @@ int board_fdt_blob_setup(void **fdtp)
+ 	return 0;
  }
  
++#if CONFIG_IS_ENABLED(OF_BOARD_FIXUP)
 +/*
-+ * Enable pcie2 (RP1 controller) in firmware-provided DTB.
-+ * Must be called BEFORE device tree binding to ensure PCIe link comes up.
++ * Early device tree fixup - called before device binding.
++ * 
++ * Critical fix: Enable pcie2 (RP1 controller) in firmware-provided DTB.
++ * The firmware may disable pcie2 because there's no config.txt dtparam
++ * to enable it (unlike pcie1). RP1 is a PCIe-attached MFD chip providing
++ * GPIO, clocks, Ethernet (MACB), and USB.
 + */
-+static void enable_pcie2_early(void *fdt)
++int board_fix_fdt(void *fdt)
 +{
 +	int offset;
 +	const char *pcie2_path = "/axi/pcie@1000120000";
@@ -254,42 +259,25 @@ index f9b643555dd..7b84c68a06f 100644
 +
 +	offset = fdt_path_offset(fdt, pcie2_path);
 +	if (offset < 0) {
-+		printf("Warning: pcie2 node not found in firmware DTB\n");
-+		return;
++		printf("Warning: pcie2 node not found in DTB\n");
++		return 0;
 +	}
 +
 +	status = fdt_getprop(fdt, offset, "status", NULL);
 +	if (status && strcmp(status, "disabled") == 0) {
 +		printf("Firmware disabled pcie2 (RP1), forcing enable...\n");
 +		fdt_setprop_string(fdt, offset, "status", "okay");
-+		printf("pcie2 enabled successfully\n");
-+	} else if (!status) {
-+		printf("pcie2 has no status property, assuming enabled\n");
-+	} else {
-+		printf("pcie2 status: %s\n", status);
++		printf("pcie2 enabled for RP1\n");
 +	}
++
++	return 0;
 +}
++#endif
 +
- /*
-  * If the firmware passed a device tree use it for U-Boot.
-  */
- int board_fdt_blob_setup(void **fdtp)
+ int copy_property(void *dst, void *src, char *path, char *property)
  {
-+	void *fdt;
-+
- 	if (fdt_magic(fw_dtb_pointer) != FDT_MAGIC)
- 		return -ENXIO;
- 
--	*fdtp = (void *)fw_dtb_pointer;
-+	fdt = (void *)fw_dtb_pointer;
-+	*fdtp = fdt;
-+
-+	/* Enable pcie2 (RP1) early, before device tree binding */
-+	enable_pcie2_early(fdt);
- 
- 	return 0;
- }
-@@ -577,12 +619,181 @@ int copy_property(void *dst, void *src, char *path, char *property)
+ 	int dst_offset, src_offset;
+@@ -577,12 +617,181 @@ int copy_property(void *dst, void *src, char *path, char *property)
  }
  
  /* Copy tweaks from the firmware dtb to the loaded dtb */
@@ -471,7 +459,7 @@ index f9b643555dd..7b84c68a06f 100644
  	/* The firmware provides a more precise model; so copy that */
  	copy_property(fdt, fw_fdt, "/", "model");
  
-@@ -611,6 +822,10 @@ void  update_fdt_from_fw(void *fdt, void *fw_fdt)
+@@ -611,6 +820,10 @@ void  update_fdt_from_fw(void *fdt, void *fw_fdt)
  	/* address of the PHY device as provided by the firmware  */
  	copy_property(fdt, fw_fdt, "ethernet0/mdio@e14/ethernet-phy@1", "reg");
  
@@ -482,7 +470,7 @@ index f9b643555dd..7b84c68a06f 100644
  	/* Bluetooth device address as provided by the firmware */
  	copy_property(fdt, fw_fdt, "/soc/serial@7e201000/bluetooth", "local-bd-address");
  
-@@ -644,6 +859,66 @@ int ft_board_setup(void *blob, struct bd_info *bd)
+@@ -644,6 +857,66 @@ int ft_board_setup(void *blob, struct bd_info *bd)
  	return 0;
  }
  
@@ -561,10 +549,10 @@ index 9ac9d6768ca..f879df109ac 100644
 +boot_targets=mmc nvme usb pxe dhcp
 diff --git a/configs/rpi_5_defconfig b/configs/rpi_5_defconfig
 new file mode 100644
-index 00000000000..119aea50582
+index 00000000000..ab789580b44
 --- /dev/null
 +++ b/configs/rpi_5_defconfig
-@@ -0,0 +1,110 @@
+@@ -0,0 +1,111 @@
 +CONFIG_ARM=y
 +CONFIG_POSITION_INDEPENDENT=y
 +CONFIG_ARCH_BCM283X=y
@@ -576,6 +564,7 @@ index 00000000000..119aea50582
 +CONFIG_OF_LIBFDT_OVERLAY=y
 +CONFIG_OF_BOARD=y
 +CONFIG_OF_HAS_PRIOR_STAGE=y
++CONFIG_OF_BOARD_FIXUP=y
 +CONFIG_DM_RESET=y
 +CONFIG_SYS_LOAD_ADDR=0x1000000
 +CONFIG_PCI=y
