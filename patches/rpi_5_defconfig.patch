@@ -14,10 +14,10 @@ index 3cd762977cb..23878233480 100644
  
 diff --git a/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi b/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi
 new file mode 100644
-index 00000000000..38eec87271c
+index 00000000000..7f3af1a28b7
 --- /dev/null
 +++ b/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi
-@@ -0,0 +1,16 @@
+@@ -0,0 +1,21 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * U-Boot configuration for Raspberry Pi 5 (BCM2712)
@@ -33,6 +33,11 @@ index 00000000000..38eec87271c
 +/* The Debug UART on Pi 5 */
 +&uart10 {
 +	bootph-all;
++};
++
++/* Force pcie2 (RP1) to be enabled */
++&pcie2 {
++	status = "okay";
 +};
 diff --git a/arch/arm/mach-bcm283x/Kconfig b/arch/arm/mach-bcm283x/Kconfig
 index d9303e8c281..14ae1bcee2e 100644
@@ -195,7 +200,7 @@ index 7a1de22e0ae..97a6b9aa5b3 100644
  		.phys = 0x107c000000UL,
  		.size = 0x0004000000UL,
 diff --git a/board/raspberrypi/rpi/rpi.c b/board/raspberrypi/rpi/rpi.c
-index f9b643555dd..8523b7c5ed5 100644
+index f9b643555dd..2148a2ea86b 100644
 --- a/board/raspberrypi/rpi/rpi.c
 +++ b/board/raspberrypi/rpi/rpi.c
 @@ -20,12 +20,16 @@
@@ -226,7 +231,42 @@ index f9b643555dd..8523b7c5ed5 100644
  	printf("RPI %s (0x%x)\n", model->name, revision);
  }
  
-@@ -611,6 +619,10 @@ void  update_fdt_from_fw(void *fdt, void *fw_fdt)
+@@ -579,10 +587,34 @@ int copy_property(void *dst, void *src, char *path, char *property)
+ /* Copy tweaks from the firmware dtb to the loaded dtb */
+ void  update_fdt_from_fw(void *fdt, void *fw_fdt)
+ {
++	int offset;
++	const char *path = "/axi/pcie@1000120000";  /* pcie2 - RP1 controller */
++
+ 	/* Using dtb from firmware directly; leave it alone */
+ 	if (fdt == fw_fdt)
+ 		return;
+ 
++	/*
++	 * CRITICAL FIX: Enable pcie2 (RP1 controller) if the firmware disabled it.
++	 * 
++	 * The Raspberry Pi firmware may provide a DTB where pcie2 is disabled because
++	 * there's no config.txt dtparam to enable it (unlike pcie1).
++	 * 
++	 * RP1 is a PCIe-attached MFD chip providing GPIO, clocks, Ethernet, USB.
++	 * Without pcie2 enabled, the link won't come up and ethernet won't work.
++	 */
++	offset = fdt_path_offset(fdt, path);
++	if (offset >= 0) {
++		const char *status = fdt_getprop(fdt, offset, "status", NULL);
++		
++		if (status && strcmp(status, "disabled") == 0) {
++			printf("Firmware disabled pcie2 (RP1), forcing enable...\n");
++			fdt_setprop_string(fdt, offset, "status", "okay");
++		}
++	} else {
++		printf("Warning: pcie2 node not found in device tree\n");
++	}
++
+ 	/* The firmware provides a more precise model; so copy that */
+ 	copy_property(fdt, fw_fdt, "/", "model");
+ 
+@@ -611,6 +643,10 @@ void  update_fdt_from_fw(void *fdt, void *fw_fdt)
  	/* address of the PHY device as provided by the firmware  */
  	copy_property(fdt, fw_fdt, "ethernet0/mdio@e14/ethernet-phy@1", "reg");
  
@@ -237,7 +277,7 @@ index f9b643555dd..8523b7c5ed5 100644
  	/* Bluetooth device address as provided by the firmware */
  	copy_property(fdt, fw_fdt, "/soc/serial@7e201000/bluetooth", "local-bd-address");
  
-@@ -644,6 +656,66 @@ int ft_board_setup(void *blob, struct bd_info *bd)
+@@ -644,6 +680,66 @@ int ft_board_setup(void *blob, struct bd_info *bd)
  	return 0;
  }
  
@@ -1269,10 +1309,10 @@ index 4454815a981..c81ee5789b5 100644
 +obj-$(CONFIG_MFD_RP1) += rp1.o
 diff --git a/drivers/mfd/rp1.c b/drivers/mfd/rp1.c
 new file mode 100644
-index 00000000000..4d6d5b44c0f
+index 00000000000..b42afd1a107
 --- /dev/null
 +++ b/drivers/mfd/rp1.c
-@@ -0,0 +1,134 @@
+@@ -0,0 +1,186 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Copyright (c) 2024 EPAM Systems
@@ -1335,6 +1375,8 @@ index 00000000000..4d6d5b44c0f
 +	struct rp1_dev *rp1 = dev_get_priv(dev);
 +	u32 chip_id, platform;
 +
++	dev_info(dev, "RP1 probe() called\n");
++
 +	/* Turn on bus-mastering */
 +	dm_pci_clrset_config16(dev, PCI_COMMAND, 0, PCI_COMMAND_MASTER | PCI_COMMAND_MEMORY);
 +
@@ -1353,26 +1395,76 @@ index 00000000000..4d6d5b44c0f
 +	dm_pci_write_config32(dev, PCI_BASE_ADDRESS_0, 0x40000);
 +
 +	ret = rp1_get_bar_region(dev, &rp1->bar_start);
-+	if (ret)
++	if (ret) {
++		dev_err(dev, "Failed to get BAR region: %d\n", ret);
 +		return ret;
++	}
++
++	dev_info(dev, "BAR region: 0x%lx\n", (unsigned long)rp1->bar_start);
 +
 +	/* Get chip id */
 +	chip_id = rp1_reg_read(rp1, RP1_SYSINFO_BASE, SYSINFO_CHIP_ID_OFFSET);
 +	platform = rp1_reg_read(rp1, RP1_SYSINFO_BASE, SYSINFO_PLATFORM_OFFSET);
-+	dev_dbg(dev, "chip_id 0x%x%s\n", chip_id,
-+		(platform & RP1_PLATFORM_FPGA) ? " FPGA" : "");
++	dev_info(dev, "chip_id 0x%x%s\n", chip_id,
++		 (platform & RP1_PLATFORM_FPGA) ? " FPGA" : "");
 +
 +	if (chip_id != RP1_C0_CHIP_ID) {
-+		dev_err(dev, "wrong chip id (%x)\n", chip_id);
++		dev_err(dev, "wrong chip id (0x%x), expected 0x%x\n", 
++			chip_id, RP1_C0_CHIP_ID);
 +		return -EINVAL;
 +	}
++
++	dev_info(dev, "RP1 probe() completed successfully\n");
 +
 +	return 0;
 +}
 +
 +static int rp1_bind(struct udevice *dev)
 +{
++	int ret;
++	ofnode node;
++	int child_count = 0;
++
 +	device_set_name(dev, RP1_DRIVER_NAME);
++
++	dev_info(dev, "RP1 bind() called\n");
++
++	node = dev_ofnode(dev);
++	if (!ofnode_valid(node)) {
++		dev_err(dev, "No device tree node found\n");
++		return -ENODEV;
++	}
++
++	dev_info(dev, "RP1 device tree node: %s\n", ofnode_get_name(node));
++
++	/* Count and log child nodes */
++	ofnode child;
++	ofnode_for_each_subnode(child, node) {
++		child_count++;
++		dev_info(dev, "  Child node %d: %s\n", child_count, 
++			 ofnode_get_name(child));
++	}
++
++	if (child_count == 0) {
++		dev_warn(dev, "No child nodes found in device tree!\n");
++		dev_warn(dev, "Firmware may have provided overlay-ready DTB instead of full DTB\n");
++		return 0;  /* Don't fail, but no children to bind */
++	}
++
++	/* Scan and bind child devices from device tree
++	 * The RP1 MFD contains child devices (GPIO, clocks, Ethernet, USB)
++	 * that need to be bound and probed
++	 */
++	ret = dm_scan_fdt_dev(dev);
++	if (ret) {
++		dev_err(dev, "Failed to bind %d child devices: %d\n", 
++			child_count, ret);
++		return ret;
++	}
++
++	dev_info(dev, "RP1 bind() completed successfully, bound %d children\n", 
++		 child_count);
++
 +	return 0;
 +}
 +
