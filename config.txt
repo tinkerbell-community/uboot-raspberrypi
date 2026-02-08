@@ -49,8 +49,10 @@ device_tree=bcm2712-rpi-5-b.dtb
 enable_uart=0
 # Crucial for NVMe/PCIe stability
 dtparam=pciex1
+dtparam=pciex1_gen=3
 dtparam=nvme
+dtparam=pciex2
+dtparam=pciex2_gen=2
 framebuffer_depth=16
-# dtparam=pciex1_gen=3
 
 [all]
