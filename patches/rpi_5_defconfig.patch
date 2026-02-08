@@ -40,16 +40,23 @@ index 00000000000..7f3af1a28b7
 +	status = "okay";
 +};
 diff --git a/arch/arm/mach-bcm283x/Kconfig b/arch/arm/mach-bcm283x/Kconfig
-index d9303e8c281..14ae1bcee2e 100644
+index d9303e8c281..0781fb3cefd 100644
 --- a/arch/arm/mach-bcm283x/Kconfig
 +++ b/arch/arm/mach-bcm283x/Kconfig
-@@ -56,6 +56,11 @@ config BCM2711_64B
+@@ -56,6 +56,18 @@ config BCM2711_64B
  	select BLOBLIST_ALLOC if GENERATE_ACPI_TABLE
  	select BLOBLIST_TABLES if GENERATE_ACPI_TABLE
  
 +config BCM2712
 +	bool "Broadcom BCM2712 SoC support"
 +	depends on ARCH_BCM283X
++	select DRIVER_GICV2
++	select ARM64
++	select CPU_ARMV8
++	select ARMV8_MULTIENTRY if GENERATE_ACPI_TABLE
++	select BLOBLIST if GENERATE_ACPI_TABLE
++	select BLOBLIST_ALLOC if GENERATE_ACPI_TABLE
++	select BLOBLIST_TABLES if GENERATE_ACPI_TABLE
 +	imply OF_UPSTREAM
 +
  menu "Broadcom BCM283X family"
@@ -200,7 +207,7 @@ index 7a1de22e0ae..97a6b9aa5b3 100644
  		.phys = 0x107c000000UL,
  		.size = 0x0004000000UL,
 diff --git a/board/raspberrypi/rpi/rpi.c b/board/raspberrypi/rpi/rpi.c
-index f9b643555dd..19a56d55cb4 100644
+index f9b643555dd..7b84c68a06f 100644
 --- a/board/raspberrypi/rpi/rpi.c
 +++ b/board/raspberrypi/rpi/rpi.c
 @@ -20,12 +20,16 @@
@@ -282,8 +289,152 @@ index f9b643555dd..19a56d55cb4 100644
  
  	return 0;
  }
-@@ -579,10 +621,18 @@ int copy_property(void *dst, void *src, char *path, char *property)
+@@ -577,12 +619,181 @@ int copy_property(void *dst, void *src, char *path, char *property)
+ }
+ 
  /* Copy tweaks from the firmware dtb to the loaded dtb */
++/*
++ * Populate RP1 device tree nodes from overlay-ready DTB.
++ * 
++ * The firmware may provide bcm2712-rpi-5-b-ovl-rp1.dts which has an empty
++ * rp1_nexus node expecting overlays to be loaded at runtime. U-Boot cannot
++ * load overlays, so we populate the nodes manually here.
++ */
++static int populate_rp1_nodes(void *fdt, int pcie2_offset)
++{
++	int nexus_offset, bus_offset, child_offset;
++	u32 reg_ranges[6] = { 0x01000000, 0x00000000, 0x00000000,
++			      0x02000000, 0x00000000, 0x00400000 };
++	u32 bus_ranges[12] = { 0x00000000, 0x40000000, 0x01000000,
++			       0x00000000, 0x00000000, 0x00000000, 0x00400000 };
++	u32 bus_dma_ranges[9] = { 0x10, 0x00000000, 0x43000000,
++				  0x10, 0x00000000, 0x10, 0x00000000 };
++	u32 reg_clocks[4] = { 0x00000000, 0x40018000, 0x00000000, 0x00010038 };
++	u32 reg_gpio[12] = { 0x00000000, 0x400d0000, 0x00000000, 0x0000c000,
++			     0x00000000, 0x400e0000, 0x00000000, 0x0000c000,
++			     0x00000000, 0x400f0000, 0x00000000, 0x0000c000 };
++	u32 reg_eth[4] = { 0x00000000, 0x40100000, 0x00000000, 0x00004000 };
++	u32 reg_usb0[4] = { 0x00000000, 0x40200000, 0x00000000, 0x00100000 };
++	u32 reg_usb1[4] = { 0x00000000, 0x40300000, 0x00000000, 0x00100000 };
++	u32 interrupts_gpio[6] = { 0, 4, 1, 4, 2, 4 };
++	u32 interrupts_eth[2] = { 6, 4 };
++	u32 interrupts_usb0[2] = { 31, 1 }; /* IRQ_TYPE_EDGE_RISING */
++	u32 interrupts_usb1[2] = { 36, 1 };
++	u32 clock_cells = 1;
++	u32 addr_cells_3 = 3, addr_cells_2 = 2, addr_cells_1 = 1;
++	u32 size_cells_2 = 2, size_cells_0 = 0;
++	u32 intr_cells = 2;
++	u8 local_mac[6] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
++	u8 tx_burst = 8, tx_thr_pkt = 2;
++
++	/* Check if rp1_nexus already exists and is populated */
++	nexus_offset = fdt_subnode_offset(fdt, pcie2_offset, "rp1_nexus");
++	if (nexus_offset >= 0) {
++		/* Check if it has children */
++		bus_offset = fdt_first_subnode(fdt, nexus_offset);
++		if (bus_offset >= 0) {
++			printf("RP1 nodes already populated, skipping\n");
++			return 0;
++		}
++		printf("Found empty rp1_nexus, populating...\n");
++	} else {
++		printf("Creating rp1_nexus node...\n");
++		nexus_offset = fdt_add_subnode(fdt, pcie2_offset, "rp1_nexus");
++		if (nexus_offset < 0) {
++			printf("ERROR: Failed to create rp1_nexus node: %d\n", nexus_offset);
++			return nexus_offset;
++		}
++	}
++
++	/* Set rp1_nexus properties */
++	fdt_setprop_string(fdt, nexus_offset, "compatible", "pci1de4,1");
++	fdt_setprop_u32(fdt, nexus_offset, "#address-cells", addr_cells_3);
++	fdt_setprop_u32(fdt, nexus_offset, "#size-cells", size_cells_2);
++	fdt_setprop(fdt, nexus_offset, "ranges", reg_ranges, sizeof(reg_ranges));
++	fdt_setprop_empty(fdt, nexus_offset, "interrupt-controller");
++	fdt_setprop_u32(fdt, nexus_offset, "#interrupt-cells", intr_cells);
++
++	/* Create pci-ep-bus@1 (simple-bus) */
++	bus_offset = fdt_add_subnode(fdt, nexus_offset, "pci-ep-bus@1");
++	if (bus_offset < 0) {
++		printf("ERROR: Failed to create pci-ep-bus@1: %d\n", bus_offset);
++		return bus_offset;
++	}
++
++	fdt_setprop_string(fdt, bus_offset, "compatible", "simple-bus");
++	fdt_setprop(fdt, bus_offset, "ranges", bus_ranges, sizeof(bus_ranges));
++	fdt_setprop(fdt, bus_offset, "dma-ranges", bus_dma_ranges, sizeof(bus_dma_ranges));
++	fdt_setprop_u32(fdt, bus_offset, "#address-cells", addr_cells_2);
++	fdt_setprop_u32(fdt, bus_offset, "#size-cells", size_cells_2);
++
++	/* Create rp1_clocks@40018000 */
++	child_offset = fdt_add_subnode(fdt, bus_offset, "clocks@40018000");
++	if (child_offset >= 0) {
++		fdt_setprop_string(fdt, child_offset, "compatible", "raspberrypi,rp1-clocks");
++		fdt_setprop(fdt, child_offset, "reg", reg_clocks, sizeof(reg_clocks));
++		fdt_setprop_u32(fdt, child_offset, "#clock-cells", clock_cells);
++	}
++
++	/* Create rp1_gpio (pinctrl@400d0000) */
++	child_offset = fdt_add_subnode(fdt, bus_offset, "pinctrl@400d0000");
++	if (child_offset >= 0) {
++		fdt_setprop_string(fdt, child_offset, "compatible", "raspberrypi,rp1-gpio");
++		fdt_setprop(fdt, child_offset, "reg", reg_gpio, sizeof(reg_gpio));
++		fdt_setprop_empty(fdt, child_offset, "gpio-controller");
++		fdt_setprop_u32(fdt, child_offset, "#gpio-cells", size_cells_2);
++		fdt_setprop_empty(fdt, child_offset, "interrupt-controller");
++		fdt_setprop_u32(fdt, child_offset, "#interrupt-cells", intr_cells);
++		fdt_setprop(fdt, child_offset, "interrupts", interrupts_gpio, sizeof(interrupts_gpio));
++	}
++
++	/* Create rp1_eth (ethernet@40100000) */
++	child_offset = fdt_add_subnode(fdt, bus_offset, "ethernet@40100000");
++	if (child_offset >= 0) {
++		fdt_setprop_string(fdt, child_offset, "compatible", "raspberrypi,rp1-gem");
++		fdt_setprop(fdt, child_offset, "reg", reg_eth, sizeof(reg_eth));
++		fdt_setprop(fdt, child_offset, "interrupts", interrupts_eth, sizeof(interrupts_eth));
++		fdt_setprop(fdt, child_offset, "local-mac-address", local_mac, sizeof(local_mac));
++		fdt_setprop_string(fdt, child_offset, "status", "okay");
++		fdt_setprop_u32(fdt, child_offset, "#address-cells", addr_cells_1);
++		fdt_setprop_u32(fdt, child_offset, "#size-cells", size_cells_0);
++	}
++
++	/* Create rp1_usb0 (usb@40200000) */
++	child_offset = fdt_add_subnode(fdt, bus_offset, "usb@40200000");
++	if (child_offset >= 0) {
++		fdt_setprop_string(fdt, child_offset, "compatible", "snps,dwc3");
++		fdt_setprop(fdt, child_offset, "reg", reg_usb0, sizeof(reg_usb0));
++		fdt_setprop(fdt, child_offset, "interrupts", interrupts_usb0, sizeof(interrupts_usb0));
++		fdt_setprop_string(fdt, child_offset, "dr_mode", "host");
++		fdt_setprop_empty(fdt, child_offset, "usb3-lpm-capable");
++		fdt_setprop_empty(fdt, child_offset, "snps,dis_rxdet_inp3_quirk");
++		fdt_setprop_empty(fdt, child_offset, "snps,parkmode-disable-hs-quirk");
++		fdt_setprop_empty(fdt, child_offset, "snps,parkmode-disable-ss-quirk");
++		fdt_setprop(fdt, child_offset, "snps,tx-max-burst", &tx_burst, sizeof(tx_burst));
++		fdt_setprop(fdt, child_offset, "snps,tx-thr-num-pkt", &tx_thr_pkt, sizeof(tx_thr_pkt));
++		fdt_setprop_string(fdt, child_offset, "status", "okay");
++	}
++
++	/* Create rp1_usb1 (usb@40300000) */
++	child_offset = fdt_add_subnode(fdt, bus_offset, "usb@40300000");
++	if (child_offset >= 0) {
++		fdt_setprop_string(fdt, child_offset, "compatible", "snps,dwc3");
++		fdt_setprop(fdt, child_offset, "reg", reg_usb1, sizeof(reg_usb1));
++		fdt_setprop(fdt, child_offset, "interrupts", interrupts_usb1, sizeof(interrupts_usb1));
++		fdt_setprop_string(fdt, child_offset, "dr_mode", "host");
++		fdt_setprop_empty(fdt, child_offset, "usb3-lpm-capable");
++		fdt_setprop_empty(fdt, child_offset, "snps,dis_rxdet_inp3_quirk");
++		fdt_setprop_empty(fdt, child_offset, "snps,parkmode-disable-hs-quirk");
++		fdt_setprop_empty(fdt, child_offset, "snps,parkmode-disable-ss-quirk");
++		fdt_setprop(fdt, child_offset, "snps,tx-max-burst", &tx_burst, sizeof(tx_burst));
++		fdt_setprop(fdt, child_offset, "snps,tx-thr-num-pkt", &tx_thr_pkt, sizeof(tx_thr_pkt));
++		fdt_setprop_string(fdt, child_offset, "status", "okay");
++	}
++
++	printf("RP1 nodes populated successfully\n");
++	return 0;
++}
++
  void  update_fdt_from_fw(void *fdt, void *fw_fdt)
  {
 +	int offset;
@@ -294,14 +445,33 @@ index f9b643555dd..19a56d55cb4 100644
  		return;
  
 +	/*
-+	 * NOTE: pcie2 (RP1 controller) is now enabled early in board_fdt_blob_setup().
-+	 * This function only copies firmware properties to the kernel DTB.
++	 * CRITICAL FIX: Enable pcie2 (RP1 controller) and populate child nodes.
++	 * 
++	 * The Raspberry Pi firmware may provide a DTB where pcie2 is disabled or
++	 * an overlay-ready variant (bcm2712-rpi-5-b-ovl-rp1.dts) with empty rp1_nexus.
++	 * 
++	 * RP1 is a PCIe-attached MFD chip providing GPIO, clocks, Ethernet, USB.
++	 * Without pcie2 enabled and child nodes populated, ethernet won't work.
 +	 */
++	offset = fdt_path_offset(fdt, path);
++	if (offset >= 0) {
++		const char *status = fdt_getprop(fdt, offset, "status", NULL);
++		
++		if (status && strcmp(status, "disabled") == 0) {
++			printf("Firmware disabled pcie2 (RP1), forcing enable...\n");
++			fdt_setprop_string(fdt, offset, "status", "okay");
++		}
++
++		/* Populate RP1 child nodes if missing (overlay-ready DTB) */
++		populate_rp1_nodes(fdt, offset);
++	} else {
++		printf("Warning: pcie2 node not found in device tree\n");
++	}
 +
  	/* The firmware provides a more precise model; so copy that */
  	copy_property(fdt, fw_fdt, "/", "model");
  
-@@ -611,6 +661,10 @@ void  update_fdt_from_fw(void *fdt, void *fw_fdt)
+@@ -611,6 +822,10 @@ void  update_fdt_from_fw(void *fdt, void *fw_fdt)
  	/* address of the PHY device as provided by the firmware  */
  	copy_property(fdt, fw_fdt, "ethernet0/mdio@e14/ethernet-phy@1", "reg");
  
@@ -312,7 +482,7 @@ index f9b643555dd..19a56d55cb4 100644
  	/* Bluetooth device address as provided by the firmware */
  	copy_property(fdt, fw_fdt, "/soc/serial@7e201000/bluetooth", "local-bd-address");
  
-@@ -644,6 +698,66 @@ int ft_board_setup(void *blob, struct bd_info *bd)
+@@ -644,6 +859,66 @@ int ft_board_setup(void *blob, struct bd_info *bd)
  	return 0;
  }
  
