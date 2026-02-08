@@ -1503,10 +1503,10 @@ index 4454815a981..c81ee5789b5 100644
 +obj-$(CONFIG_MFD_RP1) += rp1.o
 diff --git a/drivers/mfd/rp1.c b/drivers/mfd/rp1.c
 new file mode 100644
-index 00000000000..b42afd1a107
+index 00000000000..1899cd023ab
 --- /dev/null
 +++ b/drivers/mfd/rp1.c
-@@ -0,0 +1,186 @@
+@@ -0,0 +1,221 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Copyright (c) 2024 EPAM Systems
@@ -1616,7 +1616,7 @@ index 00000000000..b42afd1a107
 +static int rp1_bind(struct udevice *dev)
 +{
 +	int ret;
-+	ofnode node;
++	ofnode node, pcie_node, child;
 +	int child_count = 0;
 +
 +	device_set_name(dev, RP1_DRIVER_NAME);
@@ -1625,14 +1625,49 @@ index 00000000000..b42afd1a107
 +
 +	node = dev_ofnode(dev);
 +	if (!ofnode_valid(node)) {
-+		dev_err(dev, "No device tree node found\n");
-+		return -ENODEV;
++		/*
++		 * PCI devices don't automatically get device tree nodes
++		 * when the DT node lacks a "reg" property with PCI addressing.
++		 * Manually search for rp1_nexus node under pcie2, matching
++		 * the approach used in Linux kernel (of_find_node_by_name).
++		 */
++		dev_info(dev, "No DT node auto-assigned, searching for rp1_nexus...\n");
++
++		/* Find pcie2 node */
++		pcie_node = ofnode_path("/axi/pcie@1000120000");
++		if (!ofnode_valid(pcie_node)) {
++			dev_err(dev, "pcie@1000120000 node not found in DTB\n");
++			return -ENODEV;
++		}
++
++		/* Search for rp1_nexus child node by name and compatible */
++		ofnode_for_each_subnode(child, pcie_node) {
++			const char *name = ofnode_get_name(child);
++			const char *compat = ofnode_read_string(child, "compatible");
++			
++			/* Match by name (primary) or compatible string (fallback) */
++			if ((name && strcmp(name, "rp1_nexus") == 0) ||
++			    (compat && strcmp(compat, "pci1de4,1") == 0)) {
++				node = child;
++				dev_info(dev, "Found rp1_nexus node: %s (compatible: %s)\n", 
++					 name ? name : "unknown",
++					 compat ? compat : "unknown");
++				/* Associate the node with this device */
++				dev_set_ofnode(dev, node);
++				break;
++			}
++		}
++
++		if (!ofnode_valid(node)) {
++			dev_err(dev, "rp1_nexus node not found under pcie2\n");
++			dev_err(dev, "Firmware may have provided overlay-ready DTB\n");
++			return -ENODEV;
++		}
 +	}
 +
 +	dev_info(dev, "RP1 device tree node: %s\n", ofnode_get_name(node));
 +
 +	/* Count and log child nodes */
-+	ofnode child;
 +	ofnode_for_each_subnode(child, node) {
 +		child_count++;
 +		dev_info(dev, "  Child node %d: %s\n", child_count, 
