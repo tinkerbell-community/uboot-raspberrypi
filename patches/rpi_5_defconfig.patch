@@ -14,10 +14,10 @@ index 3cd762977cb..23878233480 100644
  
 diff --git a/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi b/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi
 new file mode 100644
-index 00000000000..7f3af1a28b7
+index 00000000000..4bb6be1326c
 --- /dev/null
 +++ b/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi
-@@ -0,0 +1,21 @@
+@@ -0,0 +1,27 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * U-Boot configuration for Raspberry Pi 5 (BCM2712)
@@ -39,6 +39,13 @@ index 00000000000..7f3af1a28b7
 +&pcie2 {
 +	status = "okay";
 +};
++
++/* RP1 Ethernet PHY reset configuration */
++&rp1_eth {
++	phy-reset-gpios = <&rp1_gpio 32 GPIO_ACTIVE_LOW>;
++	phy-reset-duration = <5>;  /* 5ms reset delay */
++};
+\ No newline at end of file
 diff --git a/arch/arm/mach-bcm283x/Kconfig b/arch/arm/mach-bcm283x/Kconfig
 index d9303e8c281..0781fb3cefd 100644
 --- a/arch/arm/mach-bcm283x/Kconfig
