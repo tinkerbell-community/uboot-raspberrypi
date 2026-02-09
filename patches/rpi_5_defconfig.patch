@@ -233,7 +233,7 @@ index 7a1de22e0ae..97a6b9aa5b3 100644
  		.phys = 0x107c000000UL,
  		.size = 0x0004000000UL,
 diff --git a/board/raspberrypi/rpi/rpi.c b/board/raspberrypi/rpi/rpi.c
-index f9b643555dd..ab39a8e95dd 100644
+index f9b643555dd..6ea27d8652f 100644
 --- a/board/raspberrypi/rpi/rpi.c
 +++ b/board/raspberrypi/rpi/rpi.c
 @@ -20,12 +20,16 @@
@@ -264,7 +264,7 @@ index f9b643555dd..ab39a8e95dd 100644
  	printf("RPI %s (0x%x)\n", model->name, revision);
  }
  
-@@ -557,6 +565,38 @@ int board_fdt_blob_setup(void **fdtp)
+@@ -557,6 +565,96 @@ int board_fdt_blob_setup(void **fdtp)
  	return 0;
  }
  
@@ -276,13 +276,21 @@ index f9b643555dd..ab39a8e95dd 100644
 + * The firmware may disable pcie2 because there's no config.txt dtparam
 + * to enable it (unlike pcie1). RP1 is a PCIe-attached MFD chip providing
 + * GPIO, clocks, Ethernet (MACB), and USB.
++ *
++ * Also configures RP1 Ethernet PHY reset GPIO and early initialization.
 + */
 +int board_fix_fdt(void *fdt)
 +{
-+	int offset;
++	int offset, eth_offset, mdio_offset, phy_offset;
 +	const char *pcie2_path = "/axi/pcie@1000120000";
++	const char *eth_path = "/axi/pcie@1000120000/rp1_nexus/pci-ep-bus@1/ethernet@40100000";
++	const char *gpio_path = "/axi/pcie@1000120000/rp1_nexus/pci-ep-bus@1/pinctrl@400d0000";
++	const char *clk_path = "/axi/pcie@1000120000/rp1_nexus/pci-ep-bus@1/clocks@40018000";
 +	const char *status;
++	fdt32_t phy_reset_gpios[3];
++	fdt32_t phy_reset_duration;
 +
++	/* Enable pcie2 if firmware disabled it */
 +	offset = fdt_path_offset(fdt, pcie2_path);
 +	if (offset < 0) {
 +		printf("Warning: pcie2 node not found in DTB\n");
@@ -293,7 +301,57 @@ index f9b643555dd..ab39a8e95dd 100644
 +	if (status && strcmp(status, "disabled") == 0) {
 +		printf("Firmware disabled pcie2 (RP1), forcing enable...\n");
 +		fdt_setprop_string(fdt, offset, "status", "okay");
-+		printf("pcie2 enabled for RP1\n");
++	}
++
++	/* Add bootph-all to pcie2 for early init */
++	fdt_setprop_empty(fdt, offset, "bootph-all");
++
++	/* Configure RP1 Ethernet PHY reset */
++	eth_offset = fdt_path_offset(fdt, eth_path);
++	if (eth_offset >= 0) {
++		/* PHY reset GPIO: rp1_gpio 32, active low */
++		phy_reset_gpios[0] = cpu_to_fdt32(0);  /* Will be fixed up to phandle */
++		phy_reset_gpios[1] = cpu_to_fdt32(32);  /* GPIO 32 */
++		phy_reset_gpios[2] = cpu_to_fdt32(1);   /* GPIO_ACTIVE_LOW = 1 */
++		
++		/* Get GPIO phandle - need to find pinctrl node first */
++		offset = fdt_path_offset(fdt, gpio_path);
++		if (offset >= 0) {
++			phy_reset_gpios[0] = cpu_to_fdt32(fdt_get_phandle(fdt, offset));
++			fdt_setprop(fdt, eth_offset, "phy-reset-gpios", 
++				    phy_reset_gpios, sizeof(phy_reset_gpios));
++			
++			/* 5ms reset duration */
++			phy_reset_duration = cpu_to_fdt32(5);
++			fdt_setprop(fdt, eth_offset, "phy-reset-duration",
++				    &phy_reset_duration, sizeof(phy_reset_duration));
++			
++			/* Add bootph-all for early init */
++			fdt_setprop_empty(fdt, eth_offset, "bootph-all");
++			
++			/* Also mark GPIO and clocks for early init */
++			fdt_setprop_empty(fdt, offset, "bootph-all");
++			
++			/* Find and mark MDIO and PHY nodes */
++			mdio_offset = fdt_subnode_offset(fdt, eth_offset, "mdio");
++			if (mdio_offset >= 0) {
++				fdt_setprop_empty(fdt, mdio_offset, "bootph-all");
++				
++				/* Find PHY node (ethernet-phy@1) */
++				phy_offset = fdt_subnode_offset(fdt, mdio_offset, "ethernet-phy@1");
++				if (phy_offset >= 0) {
++					fdt_setprop_empty(fdt, phy_offset, "bootph-all");
++				}
++			}
++		}
++		
++		/* Mark clocks for early init */
++		offset = fdt_path_offset(fdt, clk_path);
++		if (offset >= 0) {
++			fdt_setprop_empty(fdt, offset, "bootph-all");
++		}
++		
++		printf("RP1 Ethernet PHY reset configured (GPIO 32, 5ms)\n");
 +	}
 +
 +	return 0;
@@ -303,7 +361,7 @@ index f9b643555dd..ab39a8e95dd 100644
  int copy_property(void *dst, void *src, char *path, char *property)
  {
  	int dst_offset, src_offset;
-@@ -577,12 +617,181 @@ int copy_property(void *dst, void *src, char *path, char *property)
+@@ -577,12 +675,181 @@ int copy_property(void *dst, void *src, char *path, char *property)
  }
  
  /* Copy tweaks from the firmware dtb to the loaded dtb */
@@ -485,7 +543,7 @@ index f9b643555dd..ab39a8e95dd 100644
  	/* The firmware provides a more precise model; so copy that */
  	copy_property(fdt, fw_fdt, "/", "model");
  
-@@ -611,6 +820,10 @@ void  update_fdt_from_fw(void *fdt, void *fw_fdt)
+@@ -611,6 +878,10 @@ void  update_fdt_from_fw(void *fdt, void *fw_fdt)
  	/* address of the PHY device as provided by the firmware  */
  	copy_property(fdt, fw_fdt, "ethernet0/mdio@e14/ethernet-phy@1", "reg");
  
@@ -496,7 +554,7 @@ index f9b643555dd..ab39a8e95dd 100644
  	/* Bluetooth device address as provided by the firmware */
  	copy_property(fdt, fw_fdt, "/soc/serial@7e201000/bluetooth", "local-bd-address");
  
-@@ -644,6 +857,66 @@ int ft_board_setup(void *blob, struct bd_info *bd)
+@@ -644,6 +915,66 @@ int ft_board_setup(void *blob, struct bd_info *bd)
  	return 0;
  }
  
