@@ -14,10 +14,10 @@ index 3cd762977cb..23878233480 100644
  
 diff --git a/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi b/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi
 new file mode 100644
-index 00000000000..4bb6be1326c
+index 00000000000..b7e50db7d6e
 --- /dev/null
 +++ b/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi
-@@ -0,0 +1,27 @@
+@@ -0,0 +1,47 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * U-Boot configuration for Raspberry Pi 5 (BCM2712)
@@ -35,17 +35,36 @@ index 00000000000..4bb6be1326c
 +	bootph-all;
 +};
 +
-+/* Force pcie2 (RP1) to be enabled */
++/* Force pcie2 (RP1) to be enabled and initialize early for ethernet */
 +&pcie2 {
 +	status = "okay";
++	bootph-all;
 +};
 +
-+/* RP1 Ethernet PHY reset configuration */
++/* RP1 Ethernet PHY reset configuration and early init */
 +&rp1_eth {
 +	phy-reset-gpios = <&rp1_gpio 32 GPIO_ACTIVE_LOW>;
 +	phy-reset-duration = <5>;  /* 5ms reset delay */
++	bootph-all;
++	
++	mdio {
++		bootph-all;
++		
++		phy1: ethernet-phy@1 {
++			bootph-all;
++		};
++	};
 +};
-\ No newline at end of file
++
++/* RP1 GPIO needs early init for PHY reset */
++&rp1_gpio {
++	bootph-all;
++};
++
++/* RP1 clocks needed for ethernet */
++&rp1_clocks {
++	bootph-all;
++};
 diff --git a/arch/arm/mach-bcm283x/Kconfig b/arch/arm/mach-bcm283x/Kconfig
 index d9303e8c281..0781fb3cefd 100644
 --- a/arch/arm/mach-bcm283x/Kconfig
