@@ -38,7 +38,7 @@ jobs:
 
       - name: Get latest tag with U-Boot version prefix
         id: previoustag
-        uses: WyriHaximus/github-action-get-previous-tag@v1
+        uses: WyriHaximus/github-action-get-previous-tag@v2
         continue-on-error: true
         with:
           prefix: ${{ env.UBOOT_VERSION }}
