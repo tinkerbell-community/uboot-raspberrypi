@@ -327,7 +327,7 @@ jobs:
 
     steps:
       - name: Setup crane
-        uses: imjasonh/setup-crane@v0.4
+        uses: imjasonh/setup-crane@v0.5
 
       - name: Extract device tree files from Talos kernel image
         run: |
