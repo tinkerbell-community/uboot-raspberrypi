@@ -1,13 +1,51 @@
-# Editor configuration, see https://editorconfig.org
+# EditorConfig file: https://EditorConfig.org
+
+root = true
 
 [*]
 charset = utf-8
+end_of_line = lf
 indent_style = space
 indent_size = 2
 insert_final_newline = true
 trim_trailing_whitespace = true
-end_of_line = lf
-max_line_length = off
 
-[*.{md,patch}]
+# Patch files - preserve exactly as-is
+[*.patch]
+charset = utf-8
+end_of_line = lf
+indent_style = unset
+indent_size = unset
+insert_final_newline = false
 trim_trailing_whitespace = false
+
+# Python files
+[*.py]
+charset = utf-8
+indent_style = space
+indent_size = 4
+
+# Shell scripts
+[*.sh]
+charset = utf-8
+end_of_line = lf
+
+# Git configuration files
+[.gitattributes]
+charset = utf-8
+end_of_line = lf
+
+[.mailmap]
+charset = utf-8
+end_of_line = lf
+
+[Maintainers.txt]
+charset = utf-8
+end_of_line = lf
+
+# Makefiles - use tabs
+[{Makefile,GNUmakefile,*.mk}]
+charset = utf-8
+end_of_line = lf
+indent_style = tab
+indent_size = 4
