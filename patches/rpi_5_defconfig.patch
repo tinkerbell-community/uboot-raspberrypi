@@ -1,112 +1,73 @@
+diff --git a/arch/arm/dts/Makefile b/arch/arm/dts/Makefile
+index 3cd762977cb..23878233480 100644
+--- a/arch/arm/dts/Makefile
++++ b/arch/arm/dts/Makefile
+@@ -1026,7 +1026,8 @@ dtb-$(CONFIG_ARCH_BCM283X) += \
+ 	bcm2837-rpi-3-b.dtb \
+ 	bcm2837-rpi-3-b-plus.dtb \
+ 	bcm2837-rpi-cm3-io3.dtb \
+-	bcm2711-rpi-4-b.dtb
++	bcm2711-rpi-4-b.dtb \
++	bcm2712-rpi-5-b.dtb
+ 
+ dtb-$(CONFIG_TARGET_BCMNS) += ns-board.dtb
+ 
 diff --git a/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi b/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi
 new file mode 100644
-index 00000000000..a0c1061faae
+index 00000000000..4cf751efc9d
 --- /dev/null
 +++ b/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi
-@@ -0,0 +1,98 @@
-+// SPDX-License-Identifier: GPL-2.0+
-+/*
-+ * U-Boot configuration for Raspberry Pi 5 (BCM2712)
-+ * This file prevents bcm283x-u-boot.dtsi from being included for BCM2712
+@@ -0,0 +1,44 @@
++/* * 1. PCIe Root Complex Override 
++ * This tells U-Boot that the BCM2712 PCIe controller can "see" system RAM 
++ * directly at address 0x0.
 + */
++&pcie2 {
++    /* * Format: <child_addr_hi child_addr_mid child_addr_lo  parent_addr_hi parent_addr_lo  size_hi size_lo>
++     * Map PCI Addr 0x0 -> CPU Phys 0x0 (Size 16GB)
++     */
++    dma-ranges = <0x43000000 0x0 0x00000000  0x0 0x00000000  0x4 0x00000000>;
++};
 +
++/* * 2. RP1 Southbridge Node 
++ * This bridges the internal RP1 bus to the external PCIe link.
++ */
++&rp1_nexus {
++    bootph-all;
++    
++    /* * Pass-through DMA Ranges.
++     * This tells U-Boot: "Addresses on the RP1 internal bus map 1:1 to the PCIe bus."
++     */
++    dma-ranges = <0x43000000 0x0 0x00000000  0x43000000 0x0 0x00000000  0x4 0x00000000>;
++};
++
++/* * 3. RP1 Peripheral Aliases 
++ * Helps U-Boot find the Ethernet/USB without scanning the whole bus immediately.
++ */
 +/ {
-+	clocks {
-+		bootph-all;
-+	};
-+
-+	cpus {
-+		bootph-all;
-+	};
-+
-+	soc {
-+		bootph-all;
-+	};
-+
-+	axi {
-+		bootph-all;
-+	};
++    aliases {
++        ethernet0 = &rp1_eth;
++    };
 +};
 +
-+&uarta {
-+	skip-init;
-+	bootph-all;
-+};
-+
-+&uart10 {
-+	skip-init;
-+	bootph-all;
-+};
-+
-+&pinctrl {
-+	bootph-all;
-+};
-+
-+&pci_ep_bus {
-+	bootph-all;
-+};
-+
-+&rp1_clocks {
-+	bootph-all;
-+};
-+
-+&rp1_gpio {
-+	bootph-all;
-+};
-+
++/* Enable specific peripherals behind RP1 */
 +&rp1_eth {
-+	bootph-all;
++    status = "okay";
 +};
 +
 +&rp1_usb0 {
-+	bootph-all;
++    status = "okay";
 +};
 +
 +&rp1_usb1 {
-+	bootph-all;
++    status = "okay";
 +};
-+
-+&pcie1 {
-+	bootph-all;
-+};
-+
-+&pcie2 {
-+	bootph-all;
-+
-+	rp1_nexus {
-+		bootph-all;
-+
-+		pci_ep_bus {
-+			bootph-all;
-+
-+			rp1_clocks {
-+				bootph-all;
-+			};
-+
-+			rp1_gpio {
-+				bootph-all;
-+			};
-+
-+			rp1_eth {
-+				bootph-all;
-+			};
-+
-+			rp1_usb0 {
-+				bootph-all;
-+			};
-+
-+			rp1_usb1 {
-+				bootph-all;
-+			};
-+		};
-+	};
-+};
-+
+\ No newline at end of file
 diff --git a/arch/arm/mach-bcm283x/Kconfig b/arch/arm/mach-bcm283x/Kconfig
-index d9303e8c281..0781fb3cefd 100644
+index d9303e8c281..03fc83e2842 100644
 --- a/arch/arm/mach-bcm283x/Kconfig
 +++ b/arch/arm/mach-bcm283x/Kconfig
-@@ -56,6 +56,18 @@ config BCM2711_64B
+@@ -56,6 +56,19 @@ config BCM2711_64B
  	select BLOBLIST_ALLOC if GENERATE_ACPI_TABLE
  	select BLOBLIST_TABLES if GENERATE_ACPI_TABLE
  
@@ -116,6 +77,7 @@ index d9303e8c281..0781fb3cefd 100644
 +	select DRIVER_GICV2
 +	select ARM64
 +	select CPU_ARMV8
++	select PINCTRL_BCM2712
 +	select ARMV8_MULTIENTRY if GENERATE_ACPI_TABLE
 +	select BLOBLIST if GENERATE_ACPI_TABLE
 +	select BLOBLIST_ALLOC if GENERATE_ACPI_TABLE
@@ -270,7 +232,7 @@ index 7a1de22e0ae..97a6b9aa5b3 100644
  		.phys = 0x107c000000UL,
  		.size = 0x0004000000UL,
 diff --git a/board/raspberrypi/rpi/rpi.c b/board/raspberrypi/rpi/rpi.c
-index f9b643555dd..ca09924a358 100644
+index f9b643555dd..e18f0c07abf 100644
 --- a/board/raspberrypi/rpi/rpi.c
 +++ b/board/raspberrypi/rpi/rpi.c
 @@ -20,12 +20,15 @@
@@ -289,6 +251,15 @@ index f9b643555dd..ca09924a358 100644
  #include <acpi/acpi_table.h>
  #include <acpi/acpigen.h>
  #include <dm/lists.h>
+@@ -187,7 +190,7 @@ static const struct rpi_model rpi_models_new_scheme[] = {
+ 	},
+ 	[0x14] = {
+ 		"Compute Module 4",
+-		DTB_DIR "bcm2711-rpi-cm4.dtb",
++		DTB_DIR "broadcom/bcm2711-rpi-cm4.dtb",
+ 		true,
+ 	},
+ 	[0x17] = {
 @@ -532,6 +535,10 @@ static void get_board_revision(void)
  		model = &models[rev_type];
  	}
@@ -435,18 +406,17 @@ index 9ac9d6768ca..f879df109ac 100644
 +boot_targets=mmc nvme usb pxe dhcp
 diff --git a/configs/rpi_5_defconfig b/configs/rpi_5_defconfig
 new file mode 100644
-index 00000000000..ce02599f995
+index 00000000000..bb245bef462
 --- /dev/null
 +++ b/configs/rpi_5_defconfig
-@@ -0,0 +1,109 @@
+@@ -0,0 +1,111 @@
 +CONFIG_ARM=y
 +CONFIG_POSITION_INDEPENDENT=y
 +CONFIG_ARCH_BCM283X=y
 +CONFIG_TARGET_RPI_ARM64=y
 +CONFIG_NR_DRAM_BANKS=8
 +CONFIG_ENV_SIZE=0x4000
-+CONFIG_OF_UPSTREAM=y
-+CONFIG_DEFAULT_DEVICE_TREE="broadcom/bcm2712-rpi-5-b"
++CONFIG_DEFAULT_DEVICE_TREE="bcm2712-rpi-5-b"
 +CONFIG_OF_LIBFDT_OVERLAY=y
 +CONFIG_OF_HAS_PRIOR_STAGE=y
 +CONFIG_DM_RESET=y
@@ -488,6 +458,7 @@ index 00000000000..ce02599f995
 +CONFIG_BCMGENET=y
 +CONFIG_PCI_BRCMSTB=y
 +CONFIG_PINCTRL=y
++CONFIG_PINCTRL_RASPBERRYPI
 +# CONFIG_PINCTRL_GENERIC is not set
 +CONFIG_DM_RNG=y
 +CONFIG_RNG_IPROC200=y
@@ -548,6 +519,8 @@ index 00000000000..ce02599f995
 +CONFIG_LOGF_FILE=y
 +CONFIG_LOGF_LINE=y
 +CONFIG_LOGF_FUNC=y
++CONFIG_DMA_ADDR_T_64BIT=y
++CONFIG_PCI_INIT_R=y
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
 index 69e8e72c5d7..ebd7f3c9eeb 100644
 --- a/configs/rpi_arm64_defconfig
@@ -1387,10 +1360,10 @@ index 4454815a981..c81ee5789b5 100644
 +obj-$(CONFIG_MFD_RP1) += rp1.o
 diff --git a/drivers/mfd/rp1.c b/drivers/mfd/rp1.c
 new file mode 100644
-index 00000000000..1899cd023ab
+index 00000000000..7156b8e0dc4
 --- /dev/null
 +++ b/drivers/mfd/rp1.c
-@@ -0,0 +1,221 @@
+@@ -0,0 +1,186 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Copyright (c) 2024 EPAM Systems
@@ -1401,6 +1374,7 @@ index 00000000000..1899cd023ab
 +
 +#include <asm/io.h>
 +#include <dm.h>
++#include <dm/device.h>
 +#include <dm/device_compat.h>
 +#include <dm/of_access.h>
 +#include <dt-bindings/mfd/rp1.h>
@@ -1442,8 +1416,14 @@ index 00000000000..1899cd023ab
 +
 +static int rp1_get_bar_region(struct udevice *dev, phys_addr_t *bar_start)
 +{
-+	*bar_start = (phys_addr_t)dm_pci_map_bar(dev, PCI_BASE_ADDRESS_1, 0, 0,
-+			PCI_REGION_TYPE, PCI_REGION_MEM);
++	void *bar;
++
++	bar = dm_pci_map_bar(dev, PCI_BASE_ADDRESS_1, 0, 0,
++			     PCI_REGION_TYPE, PCI_REGION_MEM);
++	if (!bar)
++		return -ENOMEM;
++
++	*bar_start = (phys_addr_t)bar;
 +	return 0;
 +}
 +
@@ -1452,138 +1432,95 @@ index 00000000000..1899cd023ab
 +	int ret;
 +	struct rp1_dev *rp1 = dev_get_priv(dev);
 +	u32 chip_id, platform;
-+
-+	dev_info(dev, "RP1 probe() called\n");
++	u32 bar0_addr, bar1_addr;
 +
 +	/* Turn on bus-mastering */
 +	dm_pci_clrset_config16(dev, PCI_COMMAND, 0, PCI_COMMAND_MASTER | PCI_COMMAND_MEMORY);
 +
 +	/*
-+	 * HACK: Set bar address in the correct order. RP1 driver in Linux Kernel rely on
-+	 * the pci BAR configuration which initializes BARs based on BAR size.
-+	 * This results the Linux set BARs in the same order on each boot.
-+	 * U-boot does initialization without any sorting so the configuration
-+	 * may be different from the Linux kernel.
-+	 * Here BAR address configuration is set to match the Linux Kernel order
-+	 * to avoid fails on address translation.
-+	 * This should be changed after upstreaming RP1 driver to the Linux kernel
-+	 * mainline.
++	 * Swap BAR0 and BAR1 addresses to match device tree expectations.
++	 *
++	 * The rp1_nexus DT node maps RP1 child device addresses (ethernet,
++	 * GPIO, clocks, USB) through BAR1 starting at PCI bus address 0.
++	 * This matches the Linux PCI subsystem's generic, size-sorted BAR
++	 * allocation which places the larger BAR1 at the lowest address.
++	 * The Linux RP1 driver itself has no BAR ordering logic — it simply
++	 * maps BAR1 by index via pcim_iomap(pdev, 1, 0).
++	 *
++	 * U-Boot's PCI auto-config (dm_pciauto_setup_device in pci_auto.c)
++	 * allocates BARs sequentially by index: BAR0 first at address 0,
++	 * then BAR1 at the next naturally-aligned address. This places BAR1
++	 * at a non-zero PCI bus address, breaking of_translate_address() for
++	 * all RP1 child devices since the DT ranges assume BAR1 starts at 0.
++	 *
++	 * Fix: swap the auto-assigned addresses so BAR1 gets address 0
++	 * (matching the DT) and BAR0 moves to BAR1's old address.
++	 * Only BAR1 is used by RP1 drivers; BAR0 is never accessed.
 +	 */
-+	dm_pci_write_config32(dev, PCI_BASE_ADDRESS_1, 0);
-+	dm_pci_write_config32(dev, PCI_BASE_ADDRESS_0, 0x40000);
++	dm_pci_read_config32(dev, PCI_BASE_ADDRESS_0, &bar0_addr);
++	dm_pci_read_config32(dev, PCI_BASE_ADDRESS_1, &bar1_addr);
++	bar0_addr &= PCI_BASE_ADDRESS_MEM_MASK;
++	bar1_addr &= PCI_BASE_ADDRESS_MEM_MASK;
++	dm_pci_write_config32(dev, PCI_BASE_ADDRESS_1, bar0_addr);
++	dm_pci_write_config32(dev, PCI_BASE_ADDRESS_0, bar1_addr);
 +
 +	ret = rp1_get_bar_region(dev, &rp1->bar_start);
-+	if (ret) {
-+		dev_err(dev, "Failed to get BAR region: %d\n", ret);
++	if (ret)
 +		return ret;
-+	}
-+
-+	dev_info(dev, "BAR region: 0x%lx\n", (unsigned long)rp1->bar_start);
 +
 +	/* Get chip id */
 +	chip_id = rp1_reg_read(rp1, RP1_SYSINFO_BASE, SYSINFO_CHIP_ID_OFFSET);
 +	platform = rp1_reg_read(rp1, RP1_SYSINFO_BASE, SYSINFO_PLATFORM_OFFSET);
-+	dev_info(dev, "chip_id 0x%x%s\n", chip_id,
-+		 (platform & RP1_PLATFORM_FPGA) ? " FPGA" : "");
++	dev_dbg(dev, "chip_id 0x%x%s\n", chip_id,
++		(platform & RP1_PLATFORM_FPGA) ? " FPGA" : "");
 +
 +	if (chip_id != RP1_C0_CHIP_ID) {
-+		dev_err(dev, "wrong chip id (0x%x), expected 0x%x\n", 
-+			chip_id, RP1_C0_CHIP_ID);
++		dev_err(dev, "wrong chip id (%x)\n", chip_id);
 +		return -EINVAL;
 +	}
-+
-+	dev_info(dev, "RP1 probe() completed successfully\n");
 +
 +	return 0;
 +}
 +
 +static int rp1_bind(struct udevice *dev)
 +{
-+	int ret;
-+	ofnode node, pcie_node, child;
-+	int child_count = 0;
-+
 +	device_set_name(dev, RP1_DRIVER_NAME);
 +
-+	dev_info(dev, "RP1 bind() called\n");
-+
-+	node = dev_ofnode(dev);
-+	if (!ofnode_valid(node)) {
-+		/*
-+		 * PCI devices don't automatically get device tree nodes
-+		 * when the DT node lacks a "reg" property with PCI addressing.
-+		 * Manually search for rp1_nexus node under pcie2, matching
-+		 * the approach used in Linux kernel (of_find_node_by_name).
-+		 */
-+		dev_info(dev, "No DT node auto-assigned, searching for rp1_nexus...\n");
-+
-+		/* Find pcie2 node */
-+		pcie_node = ofnode_path("/axi/pcie@1000120000");
-+		if (!ofnode_valid(pcie_node)) {
-+			dev_err(dev, "pcie@1000120000 node not found in DTB\n");
-+			return -ENODEV;
-+		}
-+
-+		/* Search for rp1_nexus child node by name and compatible */
-+		ofnode_for_each_subnode(child, pcie_node) {
-+			const char *name = ofnode_get_name(child);
-+			const char *compat = ofnode_read_string(child, "compatible");
-+			
-+			/* Match by name (primary) or compatible string (fallback) */
-+			if ((name && strcmp(name, "rp1_nexus") == 0) ||
-+			    (compat && strcmp(compat, "pci1de4,1") == 0)) {
-+				node = child;
-+				dev_info(dev, "Found rp1_nexus node: %s (compatible: %s)\n", 
-+					 name ? name : "unknown",
-+					 compat ? compat : "unknown");
-+				/* Associate the node with this device */
-+				dev_set_ofnode(dev, node);
-+				break;
-+			}
-+		}
-+
-+		if (!ofnode_valid(node)) {
-+			dev_err(dev, "rp1_nexus node not found under pcie2\n");
-+			dev_err(dev, "Firmware may have provided overlay-ready DTB\n");
-+			return -ENODEV;
-+		}
-+	}
-+
-+	dev_info(dev, "RP1 device tree node: %s\n", ofnode_get_name(node));
-+
-+	/* Count and log child nodes */
-+	ofnode_for_each_subnode(child, node) {
-+		child_count++;
-+		dev_info(dev, "  Child node %d: %s\n", child_count, 
-+			 ofnode_get_name(child));
-+	}
-+
-+	if (child_count == 0) {
-+		dev_warn(dev, "No child nodes found in device tree!\n");
-+		dev_warn(dev, "Firmware may have provided overlay-ready DTB instead of full DTB\n");
-+		return 0;  /* Don't fail, but no children to bind */
-+	}
-+
-+	/* Scan and bind child devices from device tree
-+	 * The RP1 MFD contains child devices (GPIO, clocks, Ethernet, USB)
-+	 * that need to be bound and probed
++	/*
++	 * Bind child devices from the device tree.
++	 *
++	 * The rp1_nexus DT node contains a pci_ep_bus (simple-bus) child
++	 * which in turn holds RP1 peripheral devices: Ethernet (MACB),
++	 * GPIO, clocks, and USB controllers. Without this call, the PCI
++	 * subsystem binds the RP1 PCI device but never discovers the DT
++	 * child nodes, resulting in "No ethernet found" at boot.
++	 *
++	 * The UCLASS_PCI_GENERIC uclass has no post_bind hook to scan
++	 * children automatically (unlike UCLASS_PCI which uses
++	 * dm_scan_fdt_dev as its post_bind). We must call it explicitly.
 +	 */
-+	ret = dm_scan_fdt_dev(dev);
-+	if (ret) {
-+		dev_err(dev, "Failed to bind %d child devices: %d\n", 
-+			child_count, ret);
-+		return ret;
-+	}
-+
-+	dev_info(dev, "RP1 bind() completed successfully, bound %d children\n", 
-+		 child_count);
-+
-+	return 0;
++	return dm_scan_fdt_dev(dev);
 +}
 +
 +static const struct pci_device_id dev_id_table[] = {
 +	{ PCI_DEVICE(PCI_VENDOR_ID_RPI, PCI_DEVICE_ID_RP1_C0), },
 +	{ 0, }
++};
++
++/*
++ * DT compatible table for rp1_nexus node matching.
++ *
++ * The rp1_nexus DT node uses the PCI compatible format "pci1de4,1"
++ * (vendor 0x1de4, device 0x0001). This of_match table allows
++ * lists_bind_fdt() to find the RP1 driver during the DT scan of
++ * pcie2's children (triggered by UCLASS_PCI's post_bind =
++ * dm_scan_fdt_dev). Without this, the DT-first binding path fails
++ * with "No match for node 'rp1_nexus'" and the hardware-first path
++ * may not associate the DT ofnode with the PCI device.
++ */
++static const struct udevice_id rp1_ids[] = {
++	{ .compatible = "pci1de4,1" },
++	{ }
 +};
 +
 +static int rp1_pcie_read_config(const struct udevice *bus, pci_dev_t bdf,
@@ -1592,7 +1529,7 @@ index 00000000000..1899cd023ab
 +	/*
 +	 * Leaving this call because pci subsystem calls for read_config
 +	 * and produces error then this callback is not set.
-+	 * Just return 0 here.
++	 * Just return 0 here.s
 +	 */
 +	*valuep = 0;
 +	return 0;
@@ -1603,30 +1540,34 @@ index 00000000000..1899cd023ab
 +};
 +
 +U_BOOT_DRIVER(rp1_driver) = {
-+	.name			= RP1_DRIVER_NAME,
-+	.id			= UCLASS_PCI_GENERIC,
-+	.probe			= rp1_probe,
-+	.bind			= rp1_bind,
-+	.priv_auto		= sizeof(struct rp1_dev),
-+	.ops			= &rp1_pcie_ops,
++	.name			 = RP1_DRIVER_NAME,
++	.id			   = UCLASS_PCI_GENERIC,
++	.of_match	 = rp1_ids,
++	.probe		 = rp1_probe,
++	.bind			 = rp1_bind,
++	.priv_auto = sizeof(struct rp1_dev),
++	.ops			 = &rp1_pcie_ops,
 +};
 +
 +U_BOOT_PCI_DEVICE(rp1_driver, dev_id_table);
+\ No newline at end of file
 diff --git a/drivers/net/Kconfig b/drivers/net/Kconfig
-index 4fda1b0c28c..82a31b80d41 100644
+index 4fda1b0c28c..75172930be4 100644
 --- a/drivers/net/Kconfig
 +++ b/drivers/net/Kconfig
-@@ -569,6 +569,8 @@ config MACB
+@@ -569,6 +569,10 @@ config MACB
  	bool "Cadence MACB/GEM Ethernet Interface"
  	depends on ARM || RISCV
  	select PHYLIB
++	select DM_RESET
 +	select DM_GPIO
-+	select BOARD_LATE_INIT
++	select CLK
++	imply BOARD_LATE_INIT
  	help
  	  The Cadence MACB ethernet interface is found on many Atmel
  	  AT91 and SAMA5 parts.  This driver also supports the Cadence
 diff --git a/drivers/net/macb.c b/drivers/net/macb.c
-index cbf5f605518..902becd4daa 100644
+index cbf5f605518..68e76ddfedd 100644
 --- a/drivers/net/macb.c
 +++ b/drivers/net/macb.c
 @@ -31,6 +31,7 @@
@@ -1978,7 +1919,7 @@ index cbf5f605518..902becd4daa 100644
 +static const struct macb_config rp1_gem_config = {
 +	.dma_burst_length = 16,
 +	.hw_dma_cap = HW_DMA_CAP_64B,
-+	.clk_init = NULL,
++	.clk_init = macb_sama7g5_clk_init,
 +	.usrio = &sama7g5_usrio,
 +};
 +
@@ -2305,7 +2246,7 @@ index b06cb5c6d51..ad1a260f9ab 100644
  		goto free_id;
  	}
 diff --git a/drivers/pci/pci-uclass.c b/drivers/pci/pci-uclass.c
-index c370f8c6400..4092e8ff5a9 100644
+index c370f8c6400..c731a6f1ed3 100644
 --- a/drivers/pci/pci-uclass.c
 +++ b/drivers/pci/pci-uclass.c
 @@ -1200,6 +1200,7 @@ static int pci_uclass_post_probe(struct udevice *bus)
@@ -2331,6 +2272,41 @@ index c370f8c6400..4092e8ff5a9 100644
  
  	/* Extract the devfn from fdt_pci_addr */
  	pplat->devfn = pci_get_devfn(dev);
+@@ -1459,7 +1466,20 @@ phys_addr_t dm_pci_bus_to_phys(struct udevice *dev, pci_addr_t bus_addr,
+ 		return res->phys_start + offset;
+ 	}
+ 
+-	puts("dm_pci_bus_to_phys: invalid physical address\n");
++	printf("dm_pci_bus_to_phys: invalid physical address "
++	       "(bus_addr=0x%llx, len=0x%lx, mask=0x%lx, flags=0x%lx, "
++	       "dev=%s, ctlr=%s, regions=%d, caller=%p)\n",
++	       (unsigned long long)bus_addr, (unsigned long)len,
++	       mask, flags, dev->name, ctlr->name,
++	       hose->region_count, __builtin_return_address(0));
++	for (i = 0; i < hose->region_count; i++) {
++		res = &hose->regions[i];
++		printf("  region[%d]: bus=0x%llx phys=0x%llx size=0x%llx flags=0x%lx\n",
++		       i, (unsigned long long)res->bus_start,
++		       (unsigned long long)res->phys_start,
++		       (unsigned long long)res->size,
++		       res->flags);
++	}
+ 	return 0;
+ }
+ 
+@@ -1499,7 +1519,11 @@ pci_addr_t dm_pci_phys_to_bus(struct udevice *dev, phys_addr_t phys_addr,
+ 		return res->bus_start + offset;
+ 	}
+ 
+-	puts("dm_pci_phys_to_bus: invalid physical address\n");
++	printf("dm_pci_phys_to_bus: invalid physical address "
++	       "(phys_addr=0x%llx, len=0x%lx, mask=0x%lx, flags=0x%lx, "
++	       "dev=%s, caller=%p)\n",
++	       (unsigned long long)phys_addr, (unsigned long)len,
++	       mask, flags, dev->name, __builtin_return_address(0));
+ 	return 0;
+ }
+ 
 diff --git a/drivers/pci/pcie_brcmstb.c b/drivers/pci/pcie_brcmstb.c
 index f089c48f028..6e8445c4087 100644
 --- a/drivers/pci/pcie_brcmstb.c
@@ -3113,6 +3089,289 @@ index f089c48f028..6e8445c4087 100644
  	{ }
  };
  
+diff --git a/drivers/pinctrl/broadcom/Kconfig b/drivers/pinctrl/broadcom/Kconfig
+index b01b725583a..f49d0402b6b 100644
+--- a/drivers/pinctrl/broadcom/Kconfig
++++ b/drivers/pinctrl/broadcom/Kconfig
+@@ -13,3 +13,13 @@ config PINCTRL_BCM6838
+ 	help
+ 	   Support pin multiplexing and pin configuration control on
+ 	   Broadcom's 6838 family of SoCs.
++
++config PINCTRL_BCM2712
++	depends on ARCH_BCM283X && PINCTRL_FULL && OF_CONTROL
++	default y if BCM2712
++	bool "Broadcom BCM2712 pin control driver"
++	help
++	   Support pin multiplexing and pin configuration control on
++	   Broadcom's BCM2712 SoC (Raspberry Pi 5).
++	   This driver provides pinctrl functionality for configuring
++	   GPIO pin functions and pull-up/down resistors.
+diff --git a/drivers/pinctrl/broadcom/Makefile b/drivers/pinctrl/broadcom/Makefile
+index f94f3ce7c9c..6ffa04007f6 100644
+--- a/drivers/pinctrl/broadcom/Makefile
++++ b/drivers/pinctrl/broadcom/Makefile
+@@ -6,3 +6,4 @@
+ 
+ obj-$(CONFIG_PINCTRL_BCM283X) += pinctrl-bcm283x.o
+ obj-$(CONFIG_PINCTRL_BCM6838) += pinctrl-bcm6838.o
++obj-$(CONFIG_PINCTRL_BCM2712) += pinctrl-bcm2712.o
+diff --git a/drivers/pinctrl/broadcom/pinctrl-bcm2712.c b/drivers/pinctrl/broadcom/pinctrl-bcm2712.c
+new file mode 100644
+index 00000000000..1f34d82fa83
+--- /dev/null
++++ b/drivers/pinctrl/broadcom/pinctrl-bcm2712.c
+@@ -0,0 +1,250 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * Pinctrl driver for Broadcom BCM2712 (Raspberry Pi 5)
++ *
++ * Copyright (C) 2024-2025 Equinix Metal
++ * Based on Linux driver by:
++ * Copyright (C) 2024-2025 Ivan T. Ivanov, Andrea della Porta
++ * Copyright (C) 2021-3 Raspberry Pi Ltd.
++ *
++ * Based on pinctrl-bcm283x.c and Linux pinctrl-brcmstb-bcm2712.c
++ */
++
++#include <dm.h>
++#include <dm/pinctrl.h>
++#include <errno.h>
++#include <asm/io.h>
++#include <linux/bitops.h>
++
++#define BCM2712_FSEL_COUNT	8
++#define BCM2712_FSEL_MASK	GENMASK(3, 0)
++
++/* Register offsets */
++#define BCM2712_FSEL_REG(pin)		((pin) / 8)
++#define BCM2712_FSEL_SHIFT(pin)		(((pin) % 8) * 4)
++
++/* Pull-up/down registers (BCM2711-style for BCM2712) */
++#define BCM2712_PUD_CNTRL_REG0		57
++#define BCM2712_PUD_REG_OFFSET(pin)	((pin) / 16)
++#define BCM2712_PUD_REG_SHIFT(pin)	(((pin) % 16) * 2)
++#define BCM2712_PUD_MASK		GENMASK(1, 0)
++
++/* Pull values */
++#define BCM2712_PUD_OFF		0x0
++#define BCM2712_PUD_DOWN	0x1
++#define BCM2712_PUD_UP		0x2
++
++struct bcm2712_pinctrl_priv {
++	void __iomem *base;
++};
++
++/**
++ * bcm2712_gpio_set_func() - Set pin function
++ * @dev: pinctrl device
++ * @pin: GPIO pin number
++ * @func: function selector (0-7)
++ */
++static void bcm2712_gpio_set_func(struct udevice *dev, unsigned int pin,
++				  unsigned int func)
++{
++	struct bcm2712_pinctrl_priv *priv = dev_get_priv(dev);
++	u32 reg_offset = BCM2712_FSEL_REG(pin);
++	u32 bit_shift = BCM2712_FSEL_SHIFT(pin);
++
++	clrsetbits_le32(priv->base + (reg_offset * 4),
++			BCM2712_FSEL_MASK << bit_shift,
++			(func & BCM2712_FSEL_MASK) << bit_shift);
++}
++
++/**
++ * bcm2712_gpio_get_func() - Get current pin function
++ * @dev: pinctrl device
++ * @pin: GPIO pin number
++ * @return: function selector (0-7)
++ */
++static unsigned int bcm2712_gpio_get_func(struct udevice *dev, unsigned int pin)
++{
++	struct bcm2712_pinctrl_priv *priv = dev_get_priv(dev);
++	u32 reg_offset = BCM2712_FSEL_REG(pin);
++	u32 bit_shift = BCM2712_FSEL_SHIFT(pin);
++	u32 val;
++
++	val = readl(priv->base + (reg_offset * 4));
++	return (val >> bit_shift) & BCM2712_FSEL_MASK;
++}
++
++/**
++ * bcm2712_gpio_set_pull() - Configure pull-up/down resistor
++ * @dev: pinctrl device
++ * @pin: GPIO pin number
++ * @pull: pull setting (BCM2712_PUD_OFF, BCM2712_PUD_DOWN, BCM2712_PUD_UP)
++ */
++static void bcm2712_gpio_set_pull(struct udevice *dev, unsigned int pin,
++				  unsigned int pull)
++{
++	struct bcm2712_pinctrl_priv *priv = dev_get_priv(dev);
++	u32 reg_offset = BCM2712_PUD_CNTRL_REG0 + BCM2712_PUD_REG_OFFSET(pin);
++	u32 bit_shift = BCM2712_PUD_REG_SHIFT(pin);
++
++	clrsetbits_le32(priv->base + (reg_offset * 4),
++			BCM2712_PUD_MASK << bit_shift,
++			(pull & BCM2712_PUD_MASK) << bit_shift);
++}
++
++/**
++ * bcm2712_pinctrl_set_state() - Configure pinctrl state from device tree
++ * @dev: pinctrl device
++ * @config: configuration node
++ * @return: 0 on success, negative error code on failure
++ */
++static int bcm2712_pinctrl_set_state(struct udevice *dev,
++				     struct udevice *config)
++{
++	u32 pin_arr[32];
++	u32 func_arr[32];
++	u32 pull_arr[32];
++	int pin_count = 0;
++	int func_count = 0;
++	int pull_count = 0;
++	int i;
++
++	/* Read pin array */
++	pin_count = dev_read_u32_array(config, "pins", pin_arr,
++				       ARRAY_SIZE(pin_arr));
++	if (pin_count <= 0) {
++		/* Try legacy brcm,pins property */
++		pin_count = dev_read_u32_array(config, "brcm,pins", pin_arr,
++					       ARRAY_SIZE(pin_arr));
++	}
++
++	if (pin_count <= 0) {
++		debug("%s: No pins specified in config %s\n",
++		      __func__, config->name);
++		return -EINVAL;
++	}
++
++	/* Read function array */
++	func_count = dev_read_u32_array(config, "function", func_arr,
++					ARRAY_SIZE(func_arr));
++	if (func_count <= 0) {
++		/* Try legacy brcm,function property */
++		func_count = dev_read_u32_default(config, "brcm,function", -1);
++		if (func_count >= 0) {
++			func_arr[0] = func_count;
++			func_count = 1;
++		}
++	}
++
++	if (func_count <= 0) {
++		debug("%s: No function specified in config %s\n",
++		      __func__, config->name);
++		return -EINVAL;
++	}
++
++	/* Validate function count */
++	if (func_count != 1 && func_count != pin_count) {
++		debug("%s: Function count (%d) must be 1 or match pin count (%d)\n",
++		      __func__, func_count, pin_count);
++		return -EINVAL;
++	}
++
++	/* Read pull array (optional) */
++	pull_count = dev_read_u32_array(config, "bias-pull-up", NULL, 0);
++	if (pull_count < 0) {
++		pull_count = dev_read_u32_array(config, "bias-pull-down",
++						NULL, 0);
++		if (pull_count >= 0) {
++			/* bias-pull-down present */
++			for (i = 0; i < pin_count; i++)
++				pull_arr[i] = BCM2712_PUD_DOWN;
++			pull_count = pin_count;
++		}
++	} else if (pull_count >= 0) {
++		/* bias-pull-up present */
++		for (i = 0; i < pin_count; i++)
++			pull_arr[i] = BCM2712_PUD_UP;
++		pull_count = pin_count;
++	}
++
++	/* Try legacy brcm,pull property */
++	if (pull_count <= 0) {
++		pull_count = dev_read_u32_array(config, "brcm,pull", pull_arr,
++						ARRAY_SIZE(pull_arr));
++	}
++
++	/* Apply configuration */
++	for (i = 0; i < pin_count; i++) {
++		u32 pin = pin_arr[i];
++		u32 func = (func_count == 1) ? func_arr[0] : func_arr[i];
++
++		/* Set function */
++		bcm2712_gpio_set_func(dev, pin, func);
++
++		/* Set pull if specified */
++		if (pull_count > 0) {
++			u32 pull = (pull_count == 1) ? pull_arr[0] : pull_arr[i];
++			bcm2712_gpio_set_pull(dev, pin, pull);
++		}
++	}
++
++	return 0;
++}
++
++/**
++ * bcm2712_pinctrl_get_gpio_mux() - Get GPIO mux setting
++ * @dev: pinctrl device
++ * @banknum: GPIO bank number (always 0 for BCM2712)
++ * @index: GPIO index within bank
++ * @return: mux value
++ */
++static int bcm2712_pinctrl_get_gpio_mux(struct udevice *dev, int banknum,
++					int index)
++{
++	if (banknum != 0)
++		return -EINVAL;
++
++	return bcm2712_gpio_get_func(dev, index);
++}
++
++/**
++ * bcm2712_pinctrl_of_to_plat() - Parse device tree properties
++ * @dev: pinctrl device
++ * @return: 0 on success, negative error code on failure
++ */
++static int bcm2712_pinctrl_of_to_plat(struct udevice *dev)
++{
++	struct bcm2712_pinctrl_priv *priv = dev_get_priv(dev);
++
++	priv->base = dev_read_addr_ptr(dev);
++	if (!priv->base) {
++		debug("%s: Failed to get base address\n", __func__);
++		return -EINVAL;
++	}
++
++	return 0;
++}
++
++static const struct pinctrl_ops bcm2712_pinctrl_ops = {
++	.set_state = bcm2712_pinctrl_set_state,
++	.get_gpio_mux = bcm2712_pinctrl_get_gpio_mux,
++};
++
++static const struct udevice_id bcm2712_pinctrl_match[] = {
++	{ .compatible = "brcm,bcm2712-pinctrl" },
++	{ .compatible = "brcm,bcm2712-aon-pinctrl" },
++	{ .compatible = "brcm,bcm2712c0-pinctrl" },
++	{ .compatible = "brcm,bcm2712c0-aon-pinctrl" },
++	{ .compatible = "brcm,bcm2712d0-pinctrl" },
++	{ .compatible = "brcm,bcm2712d0-aon-pinctrl" },
++	{ }
++};
++
++U_BOOT_DRIVER(pinctrl_bcm2712) = {
++	.name = "bcm2712_pinctrl",
++	.id = UCLASS_PINCTRL,
++	.of_match = of_match_ptr(bcm2712_pinctrl_match),
++	.of_to_plat = bcm2712_pinctrl_of_to_plat,
++	.priv_auto = sizeof(struct bcm2712_pinctrl_priv),
++	.ops = &bcm2712_pinctrl_ops,
++	.flags = DM_FLAG_PRE_RELOC,
++};
 diff --git a/drivers/reset/Kconfig b/drivers/reset/Kconfig
 index 2fd91d6299c..b7d2d4b18d5 100644
 --- a/drivers/reset/Kconfig
@@ -3388,6 +3647,53 @@ index 0c81e606622..0e0cc1979eb 100644
  	{ .compatible = "brcm,bcm2708-fb" },
  #if !IS_ENABLED(CONFIG_VIDEO_DT_SIMPLEFB)
  	{ .compatible = "simple-framebuffer" },
+diff --git a/dts/upstream/src/arm64/broadcom/bcm2712.dtsi b/dts/upstream/src/arm64/broadcom/bcm2712.dtsi
+index 205b87f557d..d5e136f5482 100644
+--- a/dts/upstream/src/arm64/broadcom/bcm2712.dtsi
++++ b/dts/upstream/src/arm64/broadcom/bcm2712.dtsi
+@@ -604,8 +604,8 @@
+ 				<0x43000000 0x04 0x00000000 0x1c 0x00000000 0x03 0x00000000>;
+ 
+ 			dma-ranges =
+-				/* 4MiB, 32-bit, non-prefetchable at PCIe 00_0000_0000 */
+-				<0x02000000 0x00 0x00000000 0x1f 0x00000000 0x00 0x00400000>,
++				/* ~4MiB, 32-bit, non-prefetchable at PCIe 00_0000_0000 */
++				<0x02000000 0x00 0x00000000 0x1f 0x00000000 0x00 0x00410000>,
+ 				/* 64GiB, 64-bit, prefetchable at PCIe 10_0000_0000 */
+ 				<0x43000000 0x10 0x00000000 0x00 0x00000000 0x10 0x00000000>,
+ 				/* 4KiB, 64-bit, non-prefetchable at PCIe ff_ffff_f000 MIP0 */
+diff --git a/dts/upstream/src/arm64/broadcom/rp1-common.dtsi b/dts/upstream/src/arm64/broadcom/rp1-common.dtsi
+index 5a815c37979..ccf9bb30011 100644
+--- a/dts/upstream/src/arm64/broadcom/rp1-common.dtsi
++++ b/dts/upstream/src/arm64/broadcom/rp1-common.dtsi
+@@ -6,7 +6,7 @@
+ 
+ pci_ep_bus: pci-ep-bus@1 {
+ 	compatible = "simple-bus";
+-	ranges = <0x00 0x40000000  0x01 0x00 0x00000000  0x00 0x00400000>;
++	ranges = <0x00 0x40000000  0x01 0x00 0x00000000  0x00 0x00410000>;
+ 	dma-ranges = <0x10 0x00000000  0x43000000 0x10 0x00000000  0x10 0x00000000>;
+ 	#address-cells = <2>;
+ 	#size-cells = <2>;
+diff --git a/dts/upstream/src/arm64/broadcom/rp1-nexus.dtsi b/dts/upstream/src/arm64/broadcom/rp1-nexus.dtsi
+index 0ef30d7f1c3..53174b72763 100644
+--- a/dts/upstream/src/arm64/broadcom/rp1-nexus.dtsi
++++ b/dts/upstream/src/arm64/broadcom/rp1-nexus.dtsi
+@@ -1,12 +1,12 @@
+ // SPDX-License-Identifier: (GPL-2.0 OR MIT)
+ 
+-rp1_nexus {
++rp1_nexus: rp1_nexus {
+ 	compatible = "pci1de4,1";
+ 	#address-cells = <3>;
+ 	#size-cells = <2>;
+ 	ranges = <0x01 0x00 0x00000000
+ 		  0x02000000 0x00 0x00000000
+-		  0x0 0x400000>;
++		  0x0 0x410000>;
+ 	interrupt-controller;
+ 	#interrupt-cells = <2>;
+ 
 diff --git a/include/broadcom/bcm_board_types.h b/include/broadcom/bcm_board_types.h
 new file mode 100644
 index 00000000000..3508b40fa9c

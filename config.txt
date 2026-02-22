@@ -40,19 +40,7 @@ dtoverlay=vc4-kms-v3d-pi4,noaudio
 
 [pi5]
 kernel=u-boot-rpi5.bin
-device_tree=bcm2712-rpi-5-b.dtb
-# Disable Bluetooth.
-# dtoverlay=disable-bt-pi5
-# Disable Wireless Lan.
-# dtoverlay=disable-wifi-pi5
-# Disable console output for debugging
 enable_uart=0
-# Crucial for NVMe/PCIe stability
-dtparam=pciex1
-dtparam=pciex1_gen=3
-dtparam=nvme
-dtparam=pciex2
-dtparam=pciex2_gen=2
 framebuffer_depth=16
 
 [all]
