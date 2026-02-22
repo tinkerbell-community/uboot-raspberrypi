@@ -14,18 +14,23 @@ index 3cd762977cb..23878233480 100644
  
 diff --git a/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi b/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi
 new file mode 100644
-index 00000000000..4cf751efc9d
+index 00000000000..c5af570b54e
 --- /dev/null
 +++ b/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi
-@@ -0,0 +1,44 @@
-+/* * 1. PCIe Root Complex Override 
-+ * This tells U-Boot that the BCM2712 PCIe controller can "see" system RAM 
-+ * directly at address 0x0.
+@@ -0,0 +1,49 @@
++/* * PCIe DMA Override
++ * U-Boot's dm_pci_bus_to_phys() cannot parse the upstream dma-ranges which use
++ * 0x02000000/0x03000000 (non-prefetchable) type flags with multi-entry mappings.
++ * Replace with a single 64-bit prefetchable pass-through (0x43000000) that maps
++ * PCI address 0x0 → CPU physical 0x0 for 16 GiB.  This covers all system RAM.
++ * The upstream entries are preserved in bcm2712.dtsi for Linux compatibility;
++ * this override only affects the U-Boot-compiled DTB.
 + */
++&pcie1 {
++    dma-ranges = <0x43000000 0x0 0x00000000  0x0 0x00000000  0x4 0x00000000>;
++};
++
 +&pcie2 {
-+    /* * Format: <child_addr_hi child_addr_mid child_addr_lo  parent_addr_hi parent_addr_lo  size_hi size_lo>
-+     * Map PCI Addr 0x0 -> CPU Phys 0x0 (Size 16GB)
-+     */
 +    dma-ranges = <0x43000000 0x0 0x00000000  0x0 0x00000000  0x4 0x00000000>;
 +};
 +
@@ -232,7 +237,7 @@ index 7a1de22e0ae..97a6b9aa5b3 100644
  		.phys = 0x107c000000UL,
  		.size = 0x0004000000UL,
 diff --git a/board/raspberrypi/rpi/rpi.c b/board/raspberrypi/rpi/rpi.c
-index f9b643555dd..e18f0c07abf 100644
+index f9b643555dd..ca09924a358 100644
 --- a/board/raspberrypi/rpi/rpi.c
 +++ b/board/raspberrypi/rpi/rpi.c
 @@ -20,12 +20,15 @@
@@ -251,15 +256,6 @@ index f9b643555dd..e18f0c07abf 100644
  #include <acpi/acpi_table.h>
  #include <acpi/acpigen.h>
  #include <dm/lists.h>
-@@ -187,7 +190,7 @@ static const struct rpi_model rpi_models_new_scheme[] = {
- 	},
- 	[0x14] = {
- 		"Compute Module 4",
--		DTB_DIR "bcm2711-rpi-cm4.dtb",
-+		DTB_DIR "broadcom/bcm2711-rpi-cm4.dtb",
- 		true,
- 	},
- 	[0x17] = {
 @@ -532,6 +535,10 @@ static void get_board_revision(void)
  		model = &models[rev_type];
  	}
@@ -406,7 +402,7 @@ index 9ac9d6768ca..f879df109ac 100644
 +boot_targets=mmc nvme usb pxe dhcp
 diff --git a/configs/rpi_5_defconfig b/configs/rpi_5_defconfig
 new file mode 100644
-index 00000000000..bb245bef462
+index 00000000000..0720ec7fc8f
 --- /dev/null
 +++ b/configs/rpi_5_defconfig
 @@ -0,0 +1,111 @@
@@ -416,7 +412,7 @@ index 00000000000..bb245bef462
 +CONFIG_TARGET_RPI_ARM64=y
 +CONFIG_NR_DRAM_BANKS=8
 +CONFIG_ENV_SIZE=0x4000
-+CONFIG_DEFAULT_DEVICE_TREE="bcm2712-rpi-5-b"
++CONFIG_DEFAULT_DEVICE_TREE="broadcom/bcm2712-rpi-5-b"
 +CONFIG_OF_LIBFDT_OVERLAY=y
 +CONFIG_OF_HAS_PRIOR_STAGE=y
 +CONFIG_DM_RESET=y
