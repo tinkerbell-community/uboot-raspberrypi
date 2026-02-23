@@ -919,6 +919,23 @@ index 250dd175b55..823a4d70a6b 100644
  	if (!OF_CHECK_COUNTS(pna, pns)) {
  		printf("Bad cell count for %s\n", of_node_full_name(parent));
  		ret = -EINVAL;
+diff --git a/drivers/core/util.c b/drivers/core/util.c
+index fa893485a09..13f3ca15998 100644
+--- a/drivers/core/util.c
++++ b/drivers/core/util.c
+@@ -20,10 +20,8 @@ int pci_get_devfn(struct udevice *dev)
+ 	/* Extract the devfn from fdt_pci_addr */
+ 	ret = ofnode_read_pci_addr(dev_ofnode(dev), FDT_PCI_SPACE_CONFIG,
+ 				   "reg", &addr, NULL);
+-	if (ret) {
+-		if (ret != -ENOENT)
+-			return -EINVAL;
+-	}
++	if (ret)
++		return ret;
+ 
+ 	return addr.phys_hi & 0xff00;
+ }
 diff --git a/drivers/gpio/Kconfig b/drivers/gpio/Kconfig
 index 60c5c54688e..75af9446566 100644
 --- a/drivers/gpio/Kconfig
@@ -1356,10 +1373,10 @@ index 4454815a981..c81ee5789b5 100644
 +obj-$(CONFIG_MFD_RP1) += rp1.o
 diff --git a/drivers/mfd/rp1.c b/drivers/mfd/rp1.c
 new file mode 100644
-index 00000000000..7156b8e0dc4
+index 00000000000..e6ebf383a9a
 --- /dev/null
 +++ b/drivers/mfd/rp1.c
-@@ -0,0 +1,186 @@
+@@ -0,0 +1,188 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Copyright (c) 2024 EPAM Systems
@@ -1504,20 +1521,23 @@ index 00000000000..7156b8e0dc4
 +};
 +
 +/*
-+ * DT compatible table for rp1_nexus node matching.
++ * No of_match table: the RP1 device must NOT be bound eagerly during
++ * DT scanning of the PCIe controller's children.
 + *
-+ * The rp1_nexus DT node uses the PCI compatible format "pci1de4,1"
-+ * (vendor 0x1de4, device 0x0001). This of_match table allows
-+ * lists_bind_fdt() to find the RP1 driver during the DT scan of
-+ * pcie2's children (triggered by UCLASS_PCI's post_bind =
-+ * dm_scan_fdt_dev). Without this, the DT-first binding path fails
-+ * with "No match for node 'rp1_nexus'" and the hardware-first path
-+ * may not associate the DT ofnode with the PCI device.
++ * The rp1_nexus DT node sits directly under pcie@1000120000, but in
++ * the actual PCI topology RP1 is behind a bridge on bus 1.  If
++ * lists_bind_fdt() matched rp1_nexus during the DT scan (bus 0),
++ * pci_uclass_child_post_bind() would assign it devfn=0 (via
++ * uninitialized data — no reg property), causing pci_bind_bus_devices()
++ * to confuse it with the root port bridge on the same bus/devfn.
++ *
++ * Instead, PCI enumeration discovers RP1 on bus 1 by hardware scan
++ * and matches it through the U_BOOT_PCI_DEVICE table below.  The
++ * pci_find_and_bind_driver() fallback search associates the rp1_nexus
++ * ofnode (from the controller's DT children) with this PCI-discovered
++ * device, so rp1_bind() can then scan the DT subtree for Ethernet,
++ * GPIO, clocks, and USB children.
 + */
-+static const struct udevice_id rp1_ids[] = {
-+	{ .compatible = "pci1de4,1" },
-+	{ }
-+};
 +
 +static int rp1_pcie_read_config(const struct udevice *bus, pci_dev_t bdf,
 +				uint offset, ulong *valuep, enum pci_size_t size)
@@ -1538,7 +1558,6 @@ index 00000000000..7156b8e0dc4
 +U_BOOT_DRIVER(rp1_driver) = {
 +	.name			 = RP1_DRIVER_NAME,
 +	.id			   = UCLASS_PCI_GENERIC,
-+	.of_match	 = rp1_ids,
 +	.probe		 = rp1_probe,
 +	.bind			 = rp1_bind,
 +	.priv_auto = sizeof(struct rp1_dev),
@@ -1563,7 +1582,7 @@ index 4fda1b0c28c..75172930be4 100644
  	  The Cadence MACB ethernet interface is found on many Atmel
  	  AT91 and SAMA5 parts.  This driver also supports the Cadence
 diff --git a/drivers/net/macb.c b/drivers/net/macb.c
-index cbf5f605518..68e76ddfedd 100644
+index cbf5f605518..e4b15447bc7 100644
 --- a/drivers/net/macb.c
 +++ b/drivers/net/macb.c
 @@ -31,6 +31,7 @@
@@ -1614,12 +1633,12 @@ index cbf5f605518..68e76ddfedd 100644
  	macb_mdio_write(macb, phy_adr, reg, value);
 +	return 0;
 +}
- 
++
 +static int macb_miiphy_reset(struct mii_dev *bus)
 +{
 +	struct udevice *dev = eth_get_dev_by_name(bus->name);
 +	struct macb_device *macb = dev_get_priv(dev);
-+
+ 
 +	if (!dm_gpio_is_valid(&macb->phy_reset_gpio))
 +		return 0;
 +
@@ -1741,7 +1760,22 @@ index cbf5f605518..68e76ddfedd 100644
  static int macb_phy_init(struct udevice *dev, const char *name)
  {
  	struct macb_device *macb = dev_get_priv(dev);
-@@ -812,8 +861,8 @@ static int gmac_init_multi_queues(struct macb_device *macb)
+@@ -675,6 +724,14 @@ static int macb_phy_init(struct udevice *dev, const char *name)
+ 	arch_get_mdio_control(name);
+ 	/* If port is not fixed -> setup PHY */
+ 	if (!macb_port_is_fixed_link(macb)) {
++		/* Deassert PHY reset before scanning MDIO */
++		if (dm_gpio_is_valid(&macb->phy_reset_gpio)) {
++			dm_gpio_set_value(&macb->phy_reset_gpio, 1);
++			mdelay(macb->phy_reset_ms);
++			dm_gpio_set_value(&macb->phy_reset_gpio, 0);
++			mdelay(15);
++		}
++
+ 		/* Auto-detect phy_addr */
+ 		ret = macb_phy_find(macb, name);
+ 		if (ret)
+@@ -812,8 +869,8 @@ static int gmac_init_multi_queues(struct macb_device *macb)
  
  	macb->dummy_desc->ctrl = MACB_BIT(TX_USED);
  	macb->dummy_desc->addr = 0;
@@ -1752,7 +1786,7 @@ index cbf5f605518..68e76ddfedd 100644
  	paddr = macb->dummy_desc_dma;
  
  	for (i = 1; i < num_queues; i++) {
-@@ -917,6 +966,15 @@ static int _macb_init(struct udevice *dev, const char *name)
+@@ -917,6 +974,15 @@ static int _macb_init(struct udevice *dev, const char *name)
  		macb_writel(macb, TBQPH, upper_32_bits(macb->tx_ring_dma));
  	}
  
@@ -1768,7 +1802,7 @@ index cbf5f605518..68e76ddfedd 100644
  	if (macb_is_gem(macb)) {
  		/* Initialize DMA properties */
  		gmac_configure_dma(macb);
-@@ -1078,7 +1136,7 @@ static u32 macb_dbw(struct macb_device *macb)
+@@ -1078,7 +1144,7 @@ static u32 macb_dbw(struct macb_device *macb)
  	}
  }
  
@@ -1777,7 +1811,7 @@ index cbf5f605518..68e76ddfedd 100644
  {
  	int id = 0;	/* This is not used by functions we call */
  	u32 ncfgr;
-@@ -1092,13 +1150,23 @@ static void _macb_eth_initialize(struct macb_device *macb)
+@@ -1092,13 +1158,23 @@ static void _macb_eth_initialize(struct macb_device *macb)
  	macb->rx_buffer = dma_alloc_coherent(macb->rx_buffer_size *
  					     MACB_RX_RING_SIZE,
  					     &macb->rx_buffer_dma);
@@ -1803,7 +1837,7 @@ index cbf5f605518..68e76ddfedd 100644
  	/*
  	 * Do some basic initialization so that we at least can talk
  	 * to the PHY
-@@ -1172,11 +1240,19 @@ static const struct eth_ops macb_eth_ops = {
+@@ -1172,11 +1248,19 @@ static const struct eth_ops macb_eth_ops = {
  static int macb_enable_clk(struct udevice *dev)
  {
  	struct macb_device *macb = dev_get_priv(dev);
@@ -1826,7 +1860,7 @@ index cbf5f605518..68e76ddfedd 100644
  	if (ret)
  		return -EINVAL;
  
-@@ -1189,11 +1265,17 @@ static int macb_enable_clk(struct udevice *dev)
+@@ -1189,11 +1273,17 @@ static int macb_enable_clk(struct udevice *dev)
  	if (ret && ret != -ENOSYS)
  		return ret;
  
@@ -1848,7 +1882,7 @@ index cbf5f605518..68e76ddfedd 100644
  
  	return 0;
  }
-@@ -1224,6 +1306,7 @@ static int macb_eth_probe(struct udevice *dev)
+@@ -1224,6 +1314,7 @@ static int macb_eth_probe(struct udevice *dev)
  	if (macb->phy_interface == PHY_INTERFACE_MODE_NA)
  		return -EINVAL;
  
@@ -1856,7 +1890,7 @@ index cbf5f605518..68e76ddfedd 100644
  	/* Read phyaddr from DT */
  	if (!dev_read_phandle_with_args(dev, "phy-handle", NULL, 0, 0,
  					&phandle_args))
-@@ -1249,7 +1332,7 @@ static int macb_eth_probe(struct udevice *dev)
+@@ -1249,7 +1340,7 @@ static int macb_eth_probe(struct udevice *dev)
  		return ret;
  #endif
  
@@ -1865,7 +1899,7 @@ index cbf5f605518..68e76ddfedd 100644
  
  #if defined(CONFIG_CMD_MII) || defined(CONFIG_PHYLIB)
  	macb->bus = mdio_alloc();
-@@ -1258,6 +1341,7 @@ static int macb_eth_probe(struct udevice *dev)
+@@ -1258,6 +1349,7 @@ static int macb_eth_probe(struct udevice *dev)
  	strlcpy(macb->bus->name, dev->name, MDIO_NAME_LEN);
  	macb->bus->read = macb_miiphy_read;
  	macb->bus->write = macb_miiphy_write;
@@ -1873,7 +1907,7 @@ index cbf5f605518..68e76ddfedd 100644
  
  	ret = mdio_register(macb->bus);
  	if (ret < 0)
-@@ -1272,6 +1356,9 @@ static int macb_eth_remove(struct udevice *dev)
+@@ -1272,6 +1364,9 @@ static int macb_eth_remove(struct udevice *dev)
  {
  	struct macb_device *macb = dev_get_priv(dev);
  
@@ -1883,7 +1917,7 @@ index cbf5f605518..68e76ddfedd 100644
  #ifdef CONFIG_PHYLIB
  	free(macb->phydev);
  #endif
-@@ -1299,6 +1386,7 @@ static int macb_eth_of_to_plat(struct udevice *dev)
+@@ -1299,6 +1394,7 @@ static int macb_eth_of_to_plat(struct udevice *dev)
  	void *blob = (void *)gd->fdt_blob;
  	int node = dev_of_offset(dev);
  	int fl_node, speed_fdt;
@@ -1891,24 +1925,44 @@ index cbf5f605518..68e76ddfedd 100644
  
  	/* fetch 'fixed-link' property */
  	fl_node = fdt_subnode_offset(blob, node, "fixed-link");
-@@ -1322,6 +1410,16 @@ static int macb_eth_of_to_plat(struct udevice *dev)
+@@ -1322,6 +1418,36 @@ static int macb_eth_of_to_plat(struct udevice *dev)
  	if (!pdata->iobase)
  		return -EINVAL;
  
 +	/* optional PHY reset-related properties */
 +	ret = gpio_request_by_name(dev, "phy-reset-gpios", 0, &macb->phy_reset_gpio,
 +				   GPIOD_IS_OUT);
++	if (ret == -ENOENT) {
++		/*
++		 * Fallback: check "reset-gpios" on the mdio subnode.
++		 * The upstream DT binding places PHY reset on the MDIO bus
++		 * node rather than the MAC node.
++		 */
++		ofnode mdio_node = ofnode_find_subnode(dev_ofnode(dev), "mdio");
++
++		if (ofnode_valid(mdio_node)) {
++			ret = gpio_request_by_name_nodev(mdio_node, "reset-gpios", 0,
++							 &macb->phy_reset_gpio,
++							 GPIOD_IS_OUT);
++			if (ret == -ENOENT)
++				ret = 0;
++			if (!ret)
++				macb->phy_reset_ms = ofnode_read_s32_default(
++					mdio_node, "reset-delay-us", 10000) / 1000;
++		}
++	}
 +	if (ret && ret != -ENOENT) {
 +		printf("Failed to obtain phy-reset gpio\n");
 +		return ret;
 +	}
 +
-+	macb->phy_reset_ms = ofnode_read_s32_default(dev_ofnode(dev), "phy-reset-duration", 10);
++	if (!macb->phy_reset_ms)
++		macb->phy_reset_ms = ofnode_read_s32_default(dev_ofnode(dev), "phy-reset-duration", 10);
 +
  	return macb_late_eth_of_to_plat(dev);
  }
  
-@@ -1360,6 +1458,13 @@ static const struct macb_config sama7g5_emac_config = {
+@@ -1360,6 +1486,13 @@ static const struct macb_config sama7g5_emac_config = {
  	.usrio = &sama7g5_usrio,
  };
  
@@ -1922,7 +1976,7 @@ index cbf5f605518..68e76ddfedd 100644
  static const struct udevice_id macb_eth_ids[] = {
  	{ .compatible = "cdns,macb" },
  	{ .compatible = "cdns,at91sam9260-macb" },
-@@ -1374,6 +1479,7 @@ static const struct udevice_id macb_eth_ids[] = {
+@@ -1374,6 +1507,7 @@ static const struct udevice_id macb_eth_ids[] = {
  	{ .compatible = "cdns,zynq-gem" },
  	{ .compatible = "sifive,fu540-c000-gem",
  	  .data = (ulong)&sifive_config },
@@ -2242,10 +2296,94 @@ index b06cb5c6d51..ad1a260f9ab 100644
  		goto free_id;
  	}
 diff --git a/drivers/pci/pci-uclass.c b/drivers/pci/pci-uclass.c
-index c370f8c6400..c731a6f1ed3 100644
+index c370f8c6400..6518f299a69 100644
 --- a/drivers/pci/pci-uclass.c
 +++ b/drivers/pci/pci-uclass.c
-@@ -1200,6 +1200,7 @@ static int pci_uclass_post_probe(struct udevice *bus)
+@@ -783,6 +783,83 @@ static int pci_find_and_bind_driver(struct udevice *parent,
+ 	if (ofnode_valid(dev_ofnode(parent)))
+ 		pci_dev_find_ofnode(parent, bdf, &node);
+ 
++	/*
++	 * If no ofnode found at the current bus level, search the root
++	 * controller's DT children and siblings by PCI vendor/device
++	 * compatible string.  This handles topologies where a PCI endpoint
++	 * is described near the host controller in the DT but sits behind
++	 * a bridge in the actual PCI topology.
++	 *
++	 * Two search scopes are needed because firmware DTBs vary:
++	 *  - Upstream/Talos kernel DTBs place rp1_nexus as a child of
++	 *    pcie@1000120000 -> search controller's children.
++	 *  - Raspberry Pi firmware DTBs place rp1_nexus as a sibling of
++	 *    pcie@1000120000 under /axi -> search controller's parent's
++	 *    children.
++	 *
++	 * We use ofnode_device_is_compatible() with formatted PCI
++	 * compatible strings instead of ofnode_read_pci_vendev() because
++	 * firmware DTBs may use short device IDs (e.g. "pci1de4,1"
++	 * instead of "pci1de4,0001") which ofnode_read_pci_vendev()
++	 * cannot parse.
++	 */
++	if (!ofnode_valid(node)) {
++		struct udevice *ctlr = pci_get_controller(parent);
++
++		if (ofnode_valid(dev_ofnode(ctlr))) {
++			ofnode cnode;
++			/*
++			 * Format PCI compatible strings to match against.
++			 * Try both "pciVVVV,DDDD" (standard 4-digit) and
++			 * "pciVVVV,D+" (firmware short form).
++			 */
++			char compat_long[20], compat_short[20];
++
++			snprintf(compat_long, sizeof(compat_long),
++				 "pci%04x,%04x",
++				 find_id->vendor, find_id->device);
++			snprintf(compat_short, sizeof(compat_short),
++				 "pci%04x,%x",
++				 find_id->vendor, find_id->device);
++
++			/* Search controller's own DT children first */
++			if (ctlr != parent) {
++				dev_for_each_subnode(cnode, ctlr) {
++					if (ofnode_device_is_compatible(cnode,
++								compat_long) ||
++					    ofnode_device_is_compatible(cnode,
++								compat_short)) {
++						node = cnode;
++						break;
++					}
++				}
++			}
++
++			/*
++			 * Search siblings of the controller (children of
++			 * controller's parent node, e.g. /axi/).
++			 */
++			if (!ofnode_valid(node)) {
++				ofnode pnode;
++
++				pnode = ofnode_get_parent(dev_ofnode(ctlr));
++				if (ofnode_valid(pnode)) {
++					ofnode_for_each_subnode(cnode, pnode) {
++						if (ofnode_device_is_compatible(
++							    cnode,
++							    compat_long) ||
++						    ofnode_device_is_compatible(
++							    cnode,
++							    compat_short)) {
++							node = cnode;
++							break;
++						}
++					}
++				}
++			}
++		}
++	}
++
+ 	if (ofnode_valid(node) && !ofnode_is_enabled(node)) {
+ 		debug("%s: Ignoring disabled device\n", __func__);
+ 		return log_msg_ret("dis", -EPERM);
+@@ -1200,6 +1277,7 @@ static int pci_uclass_post_probe(struct udevice *bus)
  static int pci_uclass_child_post_bind(struct udevice *dev)
  {
  	struct pci_child_plat *pplat;
@@ -2253,7 +2391,7 @@ index c370f8c6400..c731a6f1ed3 100644
  
  	if (!dev_has_ofnode(dev))
  		return 0;
-@@ -1207,7 +1208,13 @@ static int pci_uclass_child_post_bind(struct udevice *dev)
+@@ -1207,10 +1285,20 @@ static int pci_uclass_child_post_bind(struct udevice *dev)
  	pplat = dev_get_parent_plat(dev);
  
  	/* Extract vendor id and device id if available */
@@ -2267,8 +2405,16 @@ index c370f8c6400..c731a6f1ed3 100644
 +	}
  
  	/* Extract the devfn from fdt_pci_addr */
- 	pplat->devfn = pci_get_devfn(dev);
-@@ -1459,7 +1466,20 @@ phys_addr_t dm_pci_bus_to_phys(struct udevice *dev, pci_addr_t bus_addr,
+-	pplat->devfn = pci_get_devfn(dev);
++	err = pci_get_devfn(dev);
++	if (err < 0)
++		pplat->devfn = -1;
++	else
++		pplat->devfn = err;
+ 
+ 	return 0;
+ }
+@@ -1459,7 +1547,20 @@ phys_addr_t dm_pci_bus_to_phys(struct udevice *dev, pci_addr_t bus_addr,
  		return res->phys_start + offset;
  	}
  
@@ -2290,7 +2436,7 @@ index c370f8c6400..c731a6f1ed3 100644
  	return 0;
  }
  
-@@ -1499,7 +1519,11 @@ pci_addr_t dm_pci_phys_to_bus(struct udevice *dev, phys_addr_t phys_addr,
+@@ -1499,7 +1600,11 @@ pci_addr_t dm_pci_phys_to_bus(struct udevice *dev, phys_addr_t phys_addr,
  		return res->bus_start + offset;
  	}
  
