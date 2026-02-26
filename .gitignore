@@ -1,1 +1,7 @@
 !RPI_EFI.fd
+edk2
+edk2-platforms
+firmware
+optee_os
+BaseTools
+Build

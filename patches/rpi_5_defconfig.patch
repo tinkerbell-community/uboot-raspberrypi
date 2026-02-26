@@ -14,62 +14,65 @@ index 3cd762977cb..23878233480 100644
  
 diff --git a/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi b/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi
 new file mode 100644
-index 00000000000..b7e50db7d6e
+index 00000000000..c5af570b54e
 --- /dev/null
 +++ b/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi
-@@ -0,0 +1,47 @@
-+// SPDX-License-Identifier: GPL-2.0+
-+/*
-+ * U-Boot configuration for Raspberry Pi 5 (BCM2712)
-+ * This file prevents bcm283x-u-boot.dtsi from being included for BCM2712
+@@ -0,0 +1,49 @@
++/* * PCIe DMA Override
++ * U-Boot's dm_pci_bus_to_phys() cannot parse the upstream dma-ranges which use
++ * 0x02000000/0x03000000 (non-prefetchable) type flags with multi-entry mappings.
++ * Replace with a single 64-bit prefetchable pass-through (0x43000000) that maps
++ * PCI address 0x0 → CPU physical 0x0 for 16 GiB.  This covers all system RAM.
++ * The upstream entries are preserved in bcm2712.dtsi for Linux compatibility;
++ * this override only affects the U-Boot-compiled DTB.
 + */
-+
-+/ {
-+	soc {
-+		bootph-all;
-+	};
++&pcie1 {
++    dma-ranges = <0x43000000 0x0 0x00000000  0x0 0x00000000  0x4 0x00000000>;
 +};
 +
-+/* The Debug UART on Pi 5 */
-+&uart10 {
-+	bootph-all;
-+};
-+
-+/* Force pcie2 (RP1) to be enabled and initialize early for ethernet */
 +&pcie2 {
-+	status = "okay";
-+	bootph-all;
++    dma-ranges = <0x43000000 0x0 0x00000000  0x0 0x00000000  0x4 0x00000000>;
 +};
 +
-+/* RP1 Ethernet PHY reset configuration and early init */
++/* * 2. RP1 Southbridge Node 
++ * This bridges the internal RP1 bus to the external PCIe link.
++ */
++&rp1_nexus {
++    bootph-all;
++    
++    /* * Pass-through DMA Ranges.
++     * This tells U-Boot: "Addresses on the RP1 internal bus map 1:1 to the PCIe bus."
++     */
++    dma-ranges = <0x43000000 0x0 0x00000000  0x43000000 0x0 0x00000000  0x4 0x00000000>;
++};
++
++/* * 3. RP1 Peripheral Aliases 
++ * Helps U-Boot find the Ethernet/USB without scanning the whole bus immediately.
++ */
++/ {
++    aliases {
++        ethernet0 = &rp1_eth;
++    };
++};
++
++/* Enable specific peripherals behind RP1 */
 +&rp1_eth {
-+	phy-reset-gpios = <&rp1_gpio 32 GPIO_ACTIVE_LOW>;
-+	phy-reset-duration = <5>;  /* 5ms reset delay */
-+	bootph-all;
-+	
-+	mdio {
-+		bootph-all;
-+		
-+		phy1: ethernet-phy@1 {
-+			bootph-all;
-+		};
-+	};
++    status = "okay";
 +};
 +
-+/* RP1 GPIO needs early init for PHY reset */
-+&rp1_gpio {
-+	bootph-all;
++&rp1_usb0 {
++    status = "okay";
 +};
 +
-+/* RP1 clocks needed for ethernet */
-+&rp1_clocks {
-+	bootph-all;
++&rp1_usb1 {
++    status = "okay";
 +};
+\ No newline at end of file
 diff --git a/arch/arm/mach-bcm283x/Kconfig b/arch/arm/mach-bcm283x/Kconfig
-index d9303e8c281..0781fb3cefd 100644
+index d9303e8c281..03fc83e2842 100644
 --- a/arch/arm/mach-bcm283x/Kconfig
 +++ b/arch/arm/mach-bcm283x/Kconfig
-@@ -56,6 +56,18 @@ config BCM2711_64B
+@@ -56,6 +56,19 @@ config BCM2711_64B
  	select BLOBLIST_ALLOC if GENERATE_ACPI_TABLE
  	select BLOBLIST_TABLES if GENERATE_ACPI_TABLE
  
@@ -79,6 +82,7 @@ index d9303e8c281..0781fb3cefd 100644
 +	select DRIVER_GICV2
 +	select ARM64
 +	select CPU_ARMV8
++	select PINCTRL_BCM2712
 +	select ARMV8_MULTIENTRY if GENERATE_ACPI_TABLE
 +	select BLOBLIST if GENERATE_ACPI_TABLE
 +	select BLOBLIST_ALLOC if GENERATE_ACPI_TABLE
@@ -233,10 +237,10 @@ index 7a1de22e0ae..97a6b9aa5b3 100644
  		.phys = 0x107c000000UL,
  		.size = 0x0004000000UL,
 diff --git a/board/raspberrypi/rpi/rpi.c b/board/raspberrypi/rpi/rpi.c
-index f9b643555dd..6ea27d8652f 100644
+index f9b643555dd..ca09924a358 100644
 --- a/board/raspberrypi/rpi/rpi.c
 +++ b/board/raspberrypi/rpi/rpi.c
-@@ -20,12 +20,16 @@
+@@ -20,12 +20,15 @@
  #include <asm/arch/sdhci.h>
  #include <asm/global_data.h>
  #include <dm/platform_data/serial_bcm283x_mu.h>
@@ -249,11 +253,10 @@ index f9b643555dd..6ea27d8652f 100644
  #include <dm/ofnode.h>
 +#include <dm/device-internal.h>
 +#include <dm/uclass.h>
-+#include <nvme.h>
  #include <acpi/acpi_table.h>
  #include <acpi/acpigen.h>
  #include <dm/lists.h>
-@@ -532,6 +536,10 @@ static void get_board_revision(void)
+@@ -532,6 +535,10 @@ static void get_board_revision(void)
  		model = &models[rev_type];
  	}
  
@@ -264,297 +267,7 @@ index f9b643555dd..6ea27d8652f 100644
  	printf("RPI %s (0x%x)\n", model->name, revision);
  }
  
-@@ -557,6 +565,96 @@ int board_fdt_blob_setup(void **fdtp)
- 	return 0;
- }
- 
-+#if CONFIG_IS_ENABLED(OF_BOARD_FIXUP)
-+/*
-+ * Early device tree fixup - called before device binding.
-+ * 
-+ * Critical fix: Enable pcie2 (RP1 controller) in firmware-provided DTB.
-+ * The firmware may disable pcie2 because there's no config.txt dtparam
-+ * to enable it (unlike pcie1). RP1 is a PCIe-attached MFD chip providing
-+ * GPIO, clocks, Ethernet (MACB), and USB.
-+ *
-+ * Also configures RP1 Ethernet PHY reset GPIO and early initialization.
-+ */
-+int board_fix_fdt(void *fdt)
-+{
-+	int offset, eth_offset, mdio_offset, phy_offset;
-+	const char *pcie2_path = "/axi/pcie@1000120000";
-+	const char *eth_path = "/axi/pcie@1000120000/rp1_nexus/pci-ep-bus@1/ethernet@40100000";
-+	const char *gpio_path = "/axi/pcie@1000120000/rp1_nexus/pci-ep-bus@1/pinctrl@400d0000";
-+	const char *clk_path = "/axi/pcie@1000120000/rp1_nexus/pci-ep-bus@1/clocks@40018000";
-+	const char *status;
-+	fdt32_t phy_reset_gpios[3];
-+	fdt32_t phy_reset_duration;
-+
-+	/* Enable pcie2 if firmware disabled it */
-+	offset = fdt_path_offset(fdt, pcie2_path);
-+	if (offset < 0) {
-+		printf("Warning: pcie2 node not found in DTB\n");
-+		return 0;
-+	}
-+
-+	status = fdt_getprop(fdt, offset, "status", NULL);
-+	if (status && strcmp(status, "disabled") == 0) {
-+		printf("Firmware disabled pcie2 (RP1), forcing enable...\n");
-+		fdt_setprop_string(fdt, offset, "status", "okay");
-+	}
-+
-+	/* Add bootph-all to pcie2 for early init */
-+	fdt_setprop_empty(fdt, offset, "bootph-all");
-+
-+	/* Configure RP1 Ethernet PHY reset */
-+	eth_offset = fdt_path_offset(fdt, eth_path);
-+	if (eth_offset >= 0) {
-+		/* PHY reset GPIO: rp1_gpio 32, active low */
-+		phy_reset_gpios[0] = cpu_to_fdt32(0);  /* Will be fixed up to phandle */
-+		phy_reset_gpios[1] = cpu_to_fdt32(32);  /* GPIO 32 */
-+		phy_reset_gpios[2] = cpu_to_fdt32(1);   /* GPIO_ACTIVE_LOW = 1 */
-+		
-+		/* Get GPIO phandle - need to find pinctrl node first */
-+		offset = fdt_path_offset(fdt, gpio_path);
-+		if (offset >= 0) {
-+			phy_reset_gpios[0] = cpu_to_fdt32(fdt_get_phandle(fdt, offset));
-+			fdt_setprop(fdt, eth_offset, "phy-reset-gpios", 
-+				    phy_reset_gpios, sizeof(phy_reset_gpios));
-+			
-+			/* 5ms reset duration */
-+			phy_reset_duration = cpu_to_fdt32(5);
-+			fdt_setprop(fdt, eth_offset, "phy-reset-duration",
-+				    &phy_reset_duration, sizeof(phy_reset_duration));
-+			
-+			/* Add bootph-all for early init */
-+			fdt_setprop_empty(fdt, eth_offset, "bootph-all");
-+			
-+			/* Also mark GPIO and clocks for early init */
-+			fdt_setprop_empty(fdt, offset, "bootph-all");
-+			
-+			/* Find and mark MDIO and PHY nodes */
-+			mdio_offset = fdt_subnode_offset(fdt, eth_offset, "mdio");
-+			if (mdio_offset >= 0) {
-+				fdt_setprop_empty(fdt, mdio_offset, "bootph-all");
-+				
-+				/* Find PHY node (ethernet-phy@1) */
-+				phy_offset = fdt_subnode_offset(fdt, mdio_offset, "ethernet-phy@1");
-+				if (phy_offset >= 0) {
-+					fdt_setprop_empty(fdt, phy_offset, "bootph-all");
-+				}
-+			}
-+		}
-+		
-+		/* Mark clocks for early init */
-+		offset = fdt_path_offset(fdt, clk_path);
-+		if (offset >= 0) {
-+			fdt_setprop_empty(fdt, offset, "bootph-all");
-+		}
-+		
-+		printf("RP1 Ethernet PHY reset configured (GPIO 32, 5ms)\n");
-+	}
-+
-+	return 0;
-+}
-+#endif
-+
- int copy_property(void *dst, void *src, char *path, char *property)
- {
- 	int dst_offset, src_offset;
-@@ -577,12 +675,181 @@ int copy_property(void *dst, void *src, char *path, char *property)
- }
- 
- /* Copy tweaks from the firmware dtb to the loaded dtb */
-+/*
-+ * Populate RP1 device tree nodes from overlay-ready DTB.
-+ * 
-+ * The firmware may provide bcm2712-rpi-5-b-ovl-rp1.dts which has an empty
-+ * rp1_nexus node expecting overlays to be loaded at runtime. U-Boot cannot
-+ * load overlays, so we populate the nodes manually here.
-+ */
-+static int populate_rp1_nodes(void *fdt, int pcie2_offset)
-+{
-+	int nexus_offset, bus_offset, child_offset;
-+	u32 reg_ranges[6] = { 0x01000000, 0x00000000, 0x00000000,
-+			      0x02000000, 0x00000000, 0x00400000 };
-+	u32 bus_ranges[12] = { 0x00000000, 0x40000000, 0x01000000,
-+			       0x00000000, 0x00000000, 0x00000000, 0x00400000 };
-+	u32 bus_dma_ranges[9] = { 0x10, 0x00000000, 0x43000000,
-+				  0x10, 0x00000000, 0x10, 0x00000000 };
-+	u32 reg_clocks[4] = { 0x00000000, 0x40018000, 0x00000000, 0x00010038 };
-+	u32 reg_gpio[12] = { 0x00000000, 0x400d0000, 0x00000000, 0x0000c000,
-+			     0x00000000, 0x400e0000, 0x00000000, 0x0000c000,
-+			     0x00000000, 0x400f0000, 0x00000000, 0x0000c000 };
-+	u32 reg_eth[4] = { 0x00000000, 0x40100000, 0x00000000, 0x00004000 };
-+	u32 reg_usb0[4] = { 0x00000000, 0x40200000, 0x00000000, 0x00100000 };
-+	u32 reg_usb1[4] = { 0x00000000, 0x40300000, 0x00000000, 0x00100000 };
-+	u32 interrupts_gpio[6] = { 0, 4, 1, 4, 2, 4 };
-+	u32 interrupts_eth[2] = { 6, 4 };
-+	u32 interrupts_usb0[2] = { 31, 1 }; /* IRQ_TYPE_EDGE_RISING */
-+	u32 interrupts_usb1[2] = { 36, 1 };
-+	u32 clock_cells = 1;
-+	u32 addr_cells_3 = 3, addr_cells_2 = 2, addr_cells_1 = 1;
-+	u32 size_cells_2 = 2, size_cells_0 = 0;
-+	u32 intr_cells = 2;
-+	u8 local_mac[6] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
-+	u8 tx_burst = 8, tx_thr_pkt = 2;
-+
-+	/* Check if rp1_nexus already exists and is populated */
-+	nexus_offset = fdt_subnode_offset(fdt, pcie2_offset, "rp1_nexus");
-+	if (nexus_offset >= 0) {
-+		/* Check if it has children */
-+		bus_offset = fdt_first_subnode(fdt, nexus_offset);
-+		if (bus_offset >= 0) {
-+			printf("RP1 nodes already populated, skipping\n");
-+			return 0;
-+		}
-+		printf("Found empty rp1_nexus, populating...\n");
-+	} else {
-+		printf("Creating rp1_nexus node...\n");
-+		nexus_offset = fdt_add_subnode(fdt, pcie2_offset, "rp1_nexus");
-+		if (nexus_offset < 0) {
-+			printf("ERROR: Failed to create rp1_nexus node: %d\n", nexus_offset);
-+			return nexus_offset;
-+		}
-+	}
-+
-+	/* Set rp1_nexus properties */
-+	fdt_setprop_string(fdt, nexus_offset, "compatible", "pci1de4,1");
-+	fdt_setprop_u32(fdt, nexus_offset, "#address-cells", addr_cells_3);
-+	fdt_setprop_u32(fdt, nexus_offset, "#size-cells", size_cells_2);
-+	fdt_setprop(fdt, nexus_offset, "ranges", reg_ranges, sizeof(reg_ranges));
-+	fdt_setprop_empty(fdt, nexus_offset, "interrupt-controller");
-+	fdt_setprop_u32(fdt, nexus_offset, "#interrupt-cells", intr_cells);
-+
-+	/* Create pci-ep-bus@1 (simple-bus) */
-+	bus_offset = fdt_add_subnode(fdt, nexus_offset, "pci-ep-bus@1");
-+	if (bus_offset < 0) {
-+		printf("ERROR: Failed to create pci-ep-bus@1: %d\n", bus_offset);
-+		return bus_offset;
-+	}
-+
-+	fdt_setprop_string(fdt, bus_offset, "compatible", "simple-bus");
-+	fdt_setprop(fdt, bus_offset, "ranges", bus_ranges, sizeof(bus_ranges));
-+	fdt_setprop(fdt, bus_offset, "dma-ranges", bus_dma_ranges, sizeof(bus_dma_ranges));
-+	fdt_setprop_u32(fdt, bus_offset, "#address-cells", addr_cells_2);
-+	fdt_setprop_u32(fdt, bus_offset, "#size-cells", size_cells_2);
-+
-+	/* Create rp1_clocks@40018000 */
-+	child_offset = fdt_add_subnode(fdt, bus_offset, "clocks@40018000");
-+	if (child_offset >= 0) {
-+		fdt_setprop_string(fdt, child_offset, "compatible", "raspberrypi,rp1-clocks");
-+		fdt_setprop(fdt, child_offset, "reg", reg_clocks, sizeof(reg_clocks));
-+		fdt_setprop_u32(fdt, child_offset, "#clock-cells", clock_cells);
-+	}
-+
-+	/* Create rp1_gpio (pinctrl@400d0000) */
-+	child_offset = fdt_add_subnode(fdt, bus_offset, "pinctrl@400d0000");
-+	if (child_offset >= 0) {
-+		fdt_setprop_string(fdt, child_offset, "compatible", "raspberrypi,rp1-gpio");
-+		fdt_setprop(fdt, child_offset, "reg", reg_gpio, sizeof(reg_gpio));
-+		fdt_setprop_empty(fdt, child_offset, "gpio-controller");
-+		fdt_setprop_u32(fdt, child_offset, "#gpio-cells", size_cells_2);
-+		fdt_setprop_empty(fdt, child_offset, "interrupt-controller");
-+		fdt_setprop_u32(fdt, child_offset, "#interrupt-cells", intr_cells);
-+		fdt_setprop(fdt, child_offset, "interrupts", interrupts_gpio, sizeof(interrupts_gpio));
-+	}
-+
-+	/* Create rp1_eth (ethernet@40100000) */
-+	child_offset = fdt_add_subnode(fdt, bus_offset, "ethernet@40100000");
-+	if (child_offset >= 0) {
-+		fdt_setprop_string(fdt, child_offset, "compatible", "raspberrypi,rp1-gem");
-+		fdt_setprop(fdt, child_offset, "reg", reg_eth, sizeof(reg_eth));
-+		fdt_setprop(fdt, child_offset, "interrupts", interrupts_eth, sizeof(interrupts_eth));
-+		fdt_setprop(fdt, child_offset, "local-mac-address", local_mac, sizeof(local_mac));
-+		fdt_setprop_string(fdt, child_offset, "status", "okay");
-+		fdt_setprop_u32(fdt, child_offset, "#address-cells", addr_cells_1);
-+		fdt_setprop_u32(fdt, child_offset, "#size-cells", size_cells_0);
-+	}
-+
-+	/* Create rp1_usb0 (usb@40200000) */
-+	child_offset = fdt_add_subnode(fdt, bus_offset, "usb@40200000");
-+	if (child_offset >= 0) {
-+		fdt_setprop_string(fdt, child_offset, "compatible", "snps,dwc3");
-+		fdt_setprop(fdt, child_offset, "reg", reg_usb0, sizeof(reg_usb0));
-+		fdt_setprop(fdt, child_offset, "interrupts", interrupts_usb0, sizeof(interrupts_usb0));
-+		fdt_setprop_string(fdt, child_offset, "dr_mode", "host");
-+		fdt_setprop_empty(fdt, child_offset, "usb3-lpm-capable");
-+		fdt_setprop_empty(fdt, child_offset, "snps,dis_rxdet_inp3_quirk");
-+		fdt_setprop_empty(fdt, child_offset, "snps,parkmode-disable-hs-quirk");
-+		fdt_setprop_empty(fdt, child_offset, "snps,parkmode-disable-ss-quirk");
-+		fdt_setprop(fdt, child_offset, "snps,tx-max-burst", &tx_burst, sizeof(tx_burst));
-+		fdt_setprop(fdt, child_offset, "snps,tx-thr-num-pkt", &tx_thr_pkt, sizeof(tx_thr_pkt));
-+		fdt_setprop_string(fdt, child_offset, "status", "okay");
-+	}
-+
-+	/* Create rp1_usb1 (usb@40300000) */
-+	child_offset = fdt_add_subnode(fdt, bus_offset, "usb@40300000");
-+	if (child_offset >= 0) {
-+		fdt_setprop_string(fdt, child_offset, "compatible", "snps,dwc3");
-+		fdt_setprop(fdt, child_offset, "reg", reg_usb1, sizeof(reg_usb1));
-+		fdt_setprop(fdt, child_offset, "interrupts", interrupts_usb1, sizeof(interrupts_usb1));
-+		fdt_setprop_string(fdt, child_offset, "dr_mode", "host");
-+		fdt_setprop_empty(fdt, child_offset, "usb3-lpm-capable");
-+		fdt_setprop_empty(fdt, child_offset, "snps,dis_rxdet_inp3_quirk");
-+		fdt_setprop_empty(fdt, child_offset, "snps,parkmode-disable-hs-quirk");
-+		fdt_setprop_empty(fdt, child_offset, "snps,parkmode-disable-ss-quirk");
-+		fdt_setprop(fdt, child_offset, "snps,tx-max-burst", &tx_burst, sizeof(tx_burst));
-+		fdt_setprop(fdt, child_offset, "snps,tx-thr-num-pkt", &tx_thr_pkt, sizeof(tx_thr_pkt));
-+		fdt_setprop_string(fdt, child_offset, "status", "okay");
-+	}
-+
-+	printf("RP1 nodes populated successfully\n");
-+	return 0;
-+}
-+
- void  update_fdt_from_fw(void *fdt, void *fw_fdt)
- {
-+	int offset;
-+	const char *path = "/axi/pcie@1000120000";  /* pcie2 - RP1 controller */
-+
- 	/* Using dtb from firmware directly; leave it alone */
- 	if (fdt == fw_fdt)
- 		return;
- 
-+	/*
-+	 * CRITICAL FIX: Enable pcie2 (RP1 controller) and populate child nodes.
-+	 * 
-+	 * The Raspberry Pi firmware may provide a DTB where pcie2 is disabled or
-+	 * an overlay-ready variant (bcm2712-rpi-5-b-ovl-rp1.dts) with empty rp1_nexus.
-+	 * 
-+	 * RP1 is a PCIe-attached MFD chip providing GPIO, clocks, Ethernet, USB.
-+	 * Without pcie2 enabled and child nodes populated, ethernet won't work.
-+	 */
-+	offset = fdt_path_offset(fdt, path);
-+	if (offset >= 0) {
-+		const char *status = fdt_getprop(fdt, offset, "status", NULL);
-+		
-+		if (status && strcmp(status, "disabled") == 0) {
-+			printf("Firmware disabled pcie2 (RP1), forcing enable...\n");
-+			fdt_setprop_string(fdt, offset, "status", "okay");
-+		}
-+
-+		/* Populate RP1 child nodes if missing (overlay-ready DTB) */
-+		populate_rp1_nodes(fdt, offset);
-+	} else {
-+		printf("Warning: pcie2 node not found in device tree\n");
-+	}
-+
- 	/* The firmware provides a more precise model; so copy that */
- 	copy_property(fdt, fw_fdt, "/", "model");
- 
-@@ -611,6 +878,10 @@ void  update_fdt_from_fw(void *fdt, void *fw_fdt)
- 	/* address of the PHY device as provided by the firmware  */
- 	copy_property(fdt, fw_fdt, "ethernet0/mdio@e14/ethernet-phy@1", "reg");
- 
-+	/* RP1 ethernet MAC address as provided by the firmware (RPi 5) */
-+	copy_property(fdt, fw_fdt, "ethernet0", "local-mac-address");
-+	copy_property(fdt, fw_fdt, "ethernet0", "mac-address");
-+
- 	/* Bluetooth device address as provided by the firmware */
- 	copy_property(fdt, fw_fdt, "/soc/serial@7e201000/bluetooth", "local-bd-address");
- 
-@@ -644,6 +915,66 @@ int ft_board_setup(void *blob, struct bd_info *bd)
+@@ -644,11 +651,62 @@ int ft_board_setup(void *blob, struct bd_info *bd)
  	return 0;
  }
  
@@ -601,26 +314,82 @@ index f9b643555dd..6ea27d8652f 100644
 +
 +	printf("RPI: RP1 initialized successfully\n");
 +
-+#if defined(CONFIG_NVME)
-+	/* Scan for NVME devices after RP1 initialization
-+	 * This ensures NVME devices on RP1 PCIe are discovered
-+	 */
-+	err = nvme_scan_namespace();
-+	if (err && err != -ENODEV) {
-+		printf("RPI: NVME scan failed: %d\n", err);
-+		/* Don't fail boot if NVME scan fails */
-+	} else if (!err) {
-+		printf("RPI: NVME devices scanned\n");
-+	}
-+#endif
-+
 +	return 0;
 +}
 +#endif
 +
  #if CONFIG_IS_ENABLED(GENERATE_ACPI_TABLE)
++static bool is_rpi5(void)
++{
++	return of_machine_is_compatible("brcm,bcm2712");
++}
++
  static bool is_rpi4(void)
  {
+-	return of_machine_is_compatible("brcm,bcm2711") ||
+-	       of_machine_is_compatible("brcm,bcm2712");
++	return of_machine_is_compatible("brcm,bcm2711");
+ }
+ 
+ static bool is_rpi3(void)
+@@ -664,30 +722,33 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
+ 	struct {
+ 		const char *fdt_compatible;
+ 		const char *acpi_scope;
++		bool on_rpi5;
+ 		bool on_rpi4;
+ 		bool on_rpi3;
+ 		u32 mmio_address;
+ 	} map[] = {
+-		{"brcm,bcm2711-pcie", "\\_SB.PCI0", true, false},
+-		{"brcm,bcm2711-emmc2", "\\_SB.GDV1.SDC3", true, false},
+-		{"brcm,bcm2835-pwm", "\\_SB.GDV0.PWM0", true, true},
+-		{"brcm,bcm2711-genet-v5",  "\\_SB.ETH0", true, false},
+-		{"brcm,bcm2711-thermal", "\\_SB.EC00", true, true},
+-		{"brcm,bcm2835-sdhci", "\\_SB.SDC1", true, true},
+-		{"brcm,bcm2835-sdhost", "\\_SB.SDC2", false, true},
+-		{"brcm,bcm2835-mbox", "\\_SB.GDV0.RPIQ", true, true},
+-		{"brcm,bcm2835-i2c", "\\_SB.GDV0.I2C1", true, true, 0xfe205000},
+-		{"brcm,bcm2835-i2c", "\\_SB.GDV0.I2C2", true, true, 0xfe804000},
+-		{"brcm,bcm2835-spi", "\\_SB.GDV0.SPI0", true, true},
+-		{"brcm,bcm2835-aux-spi", "\\_SB.GDV0.SPI1", true, true, 0xfe215080},
+-		{"arm,pl011", "\\_SB.URT0", true, true},
+-		{"brcm,bcm2835-aux-uart", "\\_SB.URTM", true, true},
++		{"brcm,bcm2711-pcie", "\\_SB.PCI0", false, true, false},
++		{"brcm,bcm2711-emmc2", "\\_SB.GDV1.SDC3", false, true, false},
++		{"brcm,bcm2835-pwm", "\\_SB.GDV0.PWM0", false, true, true},
++		{"brcm,bcm2711-genet-v5",  "\\_SB.ETH0", false, true, false},
++		{"raspberrypi,rp1-gem", "\\_SB.ETH0", true, false, false},
++		{"brcm,bcm2711-thermal", "\\_SB.EC00", false, true, true},
++		{"brcm,bcm2835-sdhci", "\\_SB.SDC1", false, true, true},
++		{"brcm,bcm2835-sdhost", "\\_SB.SDC2", false, false, true},
++		{"brcm,bcm2835-mbox", "\\_SB.GDV0.RPIQ", false, true, true},
++		{"brcm,bcm2835-i2c", "\\_SB.GDV0.I2C1", false, true, true, 0xfe205000},
++		{"brcm,bcm2835-i2c", "\\_SB.GDV0.I2C2", false, true, true, 0xfe804000},
++		{"brcm,bcm2835-spi", "\\_SB.GDV0.SPI0", false, true, true},
++		{"brcm,bcm2835-aux-spi", "\\_SB.GDV0.SPI1", false, true, true, 0xfe215080},
++		{"arm,pl011", "\\_SB.URT0", false, true, true},
++		{"brcm,bcm2835-aux-uart", "\\_SB.URTM", false, true, true},
+ 		{ /* Sentinel */ }
+ 	};
+ 
+ 	/* Device enable */
+ 	for (int i = 0; map[i].fdt_compatible; i++) {
+-		if ((is_rpi4() && !map[i].on_rpi4) ||
++		if ((is_rpi5() && !map[i].on_rpi5) ||
++		    (is_rpi4() && !map[i].on_rpi4) ||
+ 		    (is_rpi3() && !map[i].on_rpi3)) {
+ 			enabled = false;
+ 		} else {
+@@ -726,7 +787,7 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
+ 	acpigen_write_name_integer(ctx, "_STA", enabled ? 0xf : 0);
+ 	acpigen_pop_len(ctx);
+ 
+-	if (is_rpi4()) {
++	if (is_rpi4() || is_rpi5()) {
+ 		/* eMMC quirks */
+ 		node = fdt_node_offset_by_compatible(gd->fdt_blob, -1, "brcm,bcm2711-emmc2");
+ 		if (node) {
 diff --git a/board/raspberrypi/rpi/rpi.env b/board/raspberrypi/rpi/rpi.env
 index 9ac9d6768ca..f879df109ac 100644
 --- a/board/raspberrypi/rpi/rpi.env
@@ -633,7 +402,7 @@ index 9ac9d6768ca..f879df109ac 100644
 +boot_targets=mmc nvme usb pxe dhcp
 diff --git a/configs/rpi_5_defconfig b/configs/rpi_5_defconfig
 new file mode 100644
-index 00000000000..ab789580b44
+index 00000000000..0720ec7fc8f
 --- /dev/null
 +++ b/configs/rpi_5_defconfig
 @@ -0,0 +1,111 @@
@@ -643,12 +412,9 @@ index 00000000000..ab789580b44
 +CONFIG_TARGET_RPI_ARM64=y
 +CONFIG_NR_DRAM_BANKS=8
 +CONFIG_ENV_SIZE=0x4000
-+CONFIG_OF_UPSTREAM=y
 +CONFIG_DEFAULT_DEVICE_TREE="broadcom/bcm2712-rpi-5-b"
 +CONFIG_OF_LIBFDT_OVERLAY=y
-+CONFIG_OF_BOARD=y
 +CONFIG_OF_HAS_PRIOR_STAGE=y
-+CONFIG_OF_BOARD_FIXUP=y
 +CONFIG_DM_RESET=y
 +CONFIG_SYS_LOAD_ADDR=0x1000000
 +CONFIG_PCI=y
@@ -688,6 +454,7 @@ index 00000000000..ab789580b44
 +CONFIG_BCMGENET=y
 +CONFIG_PCI_BRCMSTB=y
 +CONFIG_PINCTRL=y
++CONFIG_PINCTRL_RASPBERRYPI
 +# CONFIG_PINCTRL_GENERIC is not set
 +CONFIG_DM_RNG=y
 +CONFIG_RNG_IPROC200=y
@@ -748,6 +515,8 @@ index 00000000000..ab789580b44
 +CONFIG_LOGF_FILE=y
 +CONFIG_LOGF_LINE=y
 +CONFIG_LOGF_FUNC=y
++CONFIG_DMA_ADDR_T_64BIT=y
++CONFIG_PCI_INIT_R=y
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
 index 69e8e72c5d7..ebd7f3c9eeb 100644
 --- a/configs/rpi_arm64_defconfig
@@ -841,7 +610,7 @@ index 5f0c0d8a5c2..71ebdb62da2 100644
 +obj-$(CONFIG_CLK_RP1) += clk-rp1.o
 diff --git a/drivers/clk/clk-rp1.c b/drivers/clk/clk-rp1.c
 new file mode 100644
-index 00000000000..94e12271345
+index 00000000000..b481e59fc6f
 --- /dev/null
 +++ b/drivers/clk/clk-rp1.c
 @@ -0,0 +1,280 @@
@@ -864,7 +633,7 @@ index 00000000000..94e12271345
 +#include <linux/clk-provider.h>
 +#include <linux/math64.h>
 +
-+#include <dt-bindings/clk/rp1.h>
++#include <dt-bindings/clock/raspberrypi,rp1-clocks.h>
 +
 +#define GPCLK_OE_CTRL			0x00000
 +
@@ -1150,6 +919,23 @@ index 250dd175b55..823a4d70a6b 100644
  	if (!OF_CHECK_COUNTS(pna, pns)) {
  		printf("Bad cell count for %s\n", of_node_full_name(parent));
  		ret = -EINVAL;
+diff --git a/drivers/core/util.c b/drivers/core/util.c
+index fa893485a09..13f3ca15998 100644
+--- a/drivers/core/util.c
++++ b/drivers/core/util.c
+@@ -20,10 +20,8 @@ int pci_get_devfn(struct udevice *dev)
+ 	/* Extract the devfn from fdt_pci_addr */
+ 	ret = ofnode_read_pci_addr(dev_ofnode(dev), FDT_PCI_SPACE_CONFIG,
+ 				   "reg", &addr, NULL);
+-	if (ret) {
+-		if (ret != -ENOENT)
+-			return -EINVAL;
+-	}
++	if (ret)
++		return ret;
+ 
+ 	return addr.phys_hi & 0xff00;
+ }
 diff --git a/drivers/gpio/Kconfig b/drivers/gpio/Kconfig
 index 60c5c54688e..75af9446566 100644
 --- a/drivers/gpio/Kconfig
@@ -1587,10 +1373,10 @@ index 4454815a981..c81ee5789b5 100644
 +obj-$(CONFIG_MFD_RP1) += rp1.o
 diff --git a/drivers/mfd/rp1.c b/drivers/mfd/rp1.c
 new file mode 100644
-index 00000000000..1899cd023ab
+index 00000000000..e6ebf383a9a
 --- /dev/null
 +++ b/drivers/mfd/rp1.c
-@@ -0,0 +1,221 @@
+@@ -0,0 +1,188 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Copyright (c) 2024 EPAM Systems
@@ -1601,6 +1387,7 @@ index 00000000000..1899cd023ab
 +
 +#include <asm/io.h>
 +#include <dm.h>
++#include <dm/device.h>
 +#include <dm/device_compat.h>
 +#include <dm/of_access.h>
 +#include <dt-bindings/mfd/rp1.h>
@@ -1642,8 +1429,14 @@ index 00000000000..1899cd023ab
 +
 +static int rp1_get_bar_region(struct udevice *dev, phys_addr_t *bar_start)
 +{
-+	*bar_start = (phys_addr_t)dm_pci_map_bar(dev, PCI_BASE_ADDRESS_1, 0, 0,
-+			PCI_REGION_TYPE, PCI_REGION_MEM);
++	void *bar;
++
++	bar = dm_pci_map_bar(dev, PCI_BASE_ADDRESS_1, 0, 0,
++			     PCI_REGION_TYPE, PCI_REGION_MEM);
++	if (!bar)
++		return -ENOMEM;
++
++	*bar_start = (phys_addr_t)bar;
 +	return 0;
 +}
 +
@@ -1652,133 +1445,74 @@ index 00000000000..1899cd023ab
 +	int ret;
 +	struct rp1_dev *rp1 = dev_get_priv(dev);
 +	u32 chip_id, platform;
-+
-+	dev_info(dev, "RP1 probe() called\n");
++	u32 bar0_addr, bar1_addr;
 +
 +	/* Turn on bus-mastering */
 +	dm_pci_clrset_config16(dev, PCI_COMMAND, 0, PCI_COMMAND_MASTER | PCI_COMMAND_MEMORY);
 +
 +	/*
-+	 * HACK: Set bar address in the correct order. RP1 driver in Linux Kernel rely on
-+	 * the pci BAR configuration which initializes BARs based on BAR size.
-+	 * This results the Linux set BARs in the same order on each boot.
-+	 * U-boot does initialization without any sorting so the configuration
-+	 * may be different from the Linux kernel.
-+	 * Here BAR address configuration is set to match the Linux Kernel order
-+	 * to avoid fails on address translation.
-+	 * This should be changed after upstreaming RP1 driver to the Linux kernel
-+	 * mainline.
++	 * Swap BAR0 and BAR1 addresses to match device tree expectations.
++	 *
++	 * The rp1_nexus DT node maps RP1 child device addresses (ethernet,
++	 * GPIO, clocks, USB) through BAR1 starting at PCI bus address 0.
++	 * This matches the Linux PCI subsystem's generic, size-sorted BAR
++	 * allocation which places the larger BAR1 at the lowest address.
++	 * The Linux RP1 driver itself has no BAR ordering logic — it simply
++	 * maps BAR1 by index via pcim_iomap(pdev, 1, 0).
++	 *
++	 * U-Boot's PCI auto-config (dm_pciauto_setup_device in pci_auto.c)
++	 * allocates BARs sequentially by index: BAR0 first at address 0,
++	 * then BAR1 at the next naturally-aligned address. This places BAR1
++	 * at a non-zero PCI bus address, breaking of_translate_address() for
++	 * all RP1 child devices since the DT ranges assume BAR1 starts at 0.
++	 *
++	 * Fix: swap the auto-assigned addresses so BAR1 gets address 0
++	 * (matching the DT) and BAR0 moves to BAR1's old address.
++	 * Only BAR1 is used by RP1 drivers; BAR0 is never accessed.
 +	 */
-+	dm_pci_write_config32(dev, PCI_BASE_ADDRESS_1, 0);
-+	dm_pci_write_config32(dev, PCI_BASE_ADDRESS_0, 0x40000);
++	dm_pci_read_config32(dev, PCI_BASE_ADDRESS_0, &bar0_addr);
++	dm_pci_read_config32(dev, PCI_BASE_ADDRESS_1, &bar1_addr);
++	bar0_addr &= PCI_BASE_ADDRESS_MEM_MASK;
++	bar1_addr &= PCI_BASE_ADDRESS_MEM_MASK;
++	dm_pci_write_config32(dev, PCI_BASE_ADDRESS_1, bar0_addr);
++	dm_pci_write_config32(dev, PCI_BASE_ADDRESS_0, bar1_addr);
 +
 +	ret = rp1_get_bar_region(dev, &rp1->bar_start);
-+	if (ret) {
-+		dev_err(dev, "Failed to get BAR region: %d\n", ret);
++	if (ret)
 +		return ret;
-+	}
-+
-+	dev_info(dev, "BAR region: 0x%lx\n", (unsigned long)rp1->bar_start);
 +
 +	/* Get chip id */
 +	chip_id = rp1_reg_read(rp1, RP1_SYSINFO_BASE, SYSINFO_CHIP_ID_OFFSET);
 +	platform = rp1_reg_read(rp1, RP1_SYSINFO_BASE, SYSINFO_PLATFORM_OFFSET);
-+	dev_info(dev, "chip_id 0x%x%s\n", chip_id,
-+		 (platform & RP1_PLATFORM_FPGA) ? " FPGA" : "");
++	dev_dbg(dev, "chip_id 0x%x%s\n", chip_id,
++		(platform & RP1_PLATFORM_FPGA) ? " FPGA" : "");
 +
 +	if (chip_id != RP1_C0_CHIP_ID) {
-+		dev_err(dev, "wrong chip id (0x%x), expected 0x%x\n", 
-+			chip_id, RP1_C0_CHIP_ID);
++		dev_err(dev, "wrong chip id (%x)\n", chip_id);
 +		return -EINVAL;
 +	}
-+
-+	dev_info(dev, "RP1 probe() completed successfully\n");
 +
 +	return 0;
 +}
 +
 +static int rp1_bind(struct udevice *dev)
 +{
-+	int ret;
-+	ofnode node, pcie_node, child;
-+	int child_count = 0;
-+
 +	device_set_name(dev, RP1_DRIVER_NAME);
 +
-+	dev_info(dev, "RP1 bind() called\n");
-+
-+	node = dev_ofnode(dev);
-+	if (!ofnode_valid(node)) {
-+		/*
-+		 * PCI devices don't automatically get device tree nodes
-+		 * when the DT node lacks a "reg" property with PCI addressing.
-+		 * Manually search for rp1_nexus node under pcie2, matching
-+		 * the approach used in Linux kernel (of_find_node_by_name).
-+		 */
-+		dev_info(dev, "No DT node auto-assigned, searching for rp1_nexus...\n");
-+
-+		/* Find pcie2 node */
-+		pcie_node = ofnode_path("/axi/pcie@1000120000");
-+		if (!ofnode_valid(pcie_node)) {
-+			dev_err(dev, "pcie@1000120000 node not found in DTB\n");
-+			return -ENODEV;
-+		}
-+
-+		/* Search for rp1_nexus child node by name and compatible */
-+		ofnode_for_each_subnode(child, pcie_node) {
-+			const char *name = ofnode_get_name(child);
-+			const char *compat = ofnode_read_string(child, "compatible");
-+			
-+			/* Match by name (primary) or compatible string (fallback) */
-+			if ((name && strcmp(name, "rp1_nexus") == 0) ||
-+			    (compat && strcmp(compat, "pci1de4,1") == 0)) {
-+				node = child;
-+				dev_info(dev, "Found rp1_nexus node: %s (compatible: %s)\n", 
-+					 name ? name : "unknown",
-+					 compat ? compat : "unknown");
-+				/* Associate the node with this device */
-+				dev_set_ofnode(dev, node);
-+				break;
-+			}
-+		}
-+
-+		if (!ofnode_valid(node)) {
-+			dev_err(dev, "rp1_nexus node not found under pcie2\n");
-+			dev_err(dev, "Firmware may have provided overlay-ready DTB\n");
-+			return -ENODEV;
-+		}
-+	}
-+
-+	dev_info(dev, "RP1 device tree node: %s\n", ofnode_get_name(node));
-+
-+	/* Count and log child nodes */
-+	ofnode_for_each_subnode(child, node) {
-+		child_count++;
-+		dev_info(dev, "  Child node %d: %s\n", child_count, 
-+			 ofnode_get_name(child));
-+	}
-+
-+	if (child_count == 0) {
-+		dev_warn(dev, "No child nodes found in device tree!\n");
-+		dev_warn(dev, "Firmware may have provided overlay-ready DTB instead of full DTB\n");
-+		return 0;  /* Don't fail, but no children to bind */
-+	}
-+
-+	/* Scan and bind child devices from device tree
-+	 * The RP1 MFD contains child devices (GPIO, clocks, Ethernet, USB)
-+	 * that need to be bound and probed
++	/*
++	 * Bind child devices from the device tree.
++	 *
++	 * The rp1_nexus DT node contains a pci_ep_bus (simple-bus) child
++	 * which in turn holds RP1 peripheral devices: Ethernet (MACB),
++	 * GPIO, clocks, and USB controllers. Without this call, the PCI
++	 * subsystem binds the RP1 PCI device but never discovers the DT
++	 * child nodes, resulting in "No ethernet found" at boot.
++	 *
++	 * The UCLASS_PCI_GENERIC uclass has no post_bind hook to scan
++	 * children automatically (unlike UCLASS_PCI which uses
++	 * dm_scan_fdt_dev as its post_bind). We must call it explicitly.
 +	 */
-+	ret = dm_scan_fdt_dev(dev);
-+	if (ret) {
-+		dev_err(dev, "Failed to bind %d child devices: %d\n", 
-+			child_count, ret);
-+		return ret;
-+	}
-+
-+	dev_info(dev, "RP1 bind() completed successfully, bound %d children\n", 
-+		 child_count);
-+
-+	return 0;
++	return dm_scan_fdt_dev(dev);
 +}
 +
 +static const struct pci_device_id dev_id_table[] = {
@@ -1786,13 +1520,32 @@ index 00000000000..1899cd023ab
 +	{ 0, }
 +};
 +
++/*
++ * No of_match table: the RP1 device must NOT be bound eagerly during
++ * DT scanning of the PCIe controller's children.
++ *
++ * The rp1_nexus DT node sits directly under pcie@1000120000, but in
++ * the actual PCI topology RP1 is behind a bridge on bus 1.  If
++ * lists_bind_fdt() matched rp1_nexus during the DT scan (bus 0),
++ * pci_uclass_child_post_bind() would assign it devfn=0 (via
++ * uninitialized data — no reg property), causing pci_bind_bus_devices()
++ * to confuse it with the root port bridge on the same bus/devfn.
++ *
++ * Instead, PCI enumeration discovers RP1 on bus 1 by hardware scan
++ * and matches it through the U_BOOT_PCI_DEVICE table below.  The
++ * pci_find_and_bind_driver() fallback search associates the rp1_nexus
++ * ofnode (from the controller's DT children) with this PCI-discovered
++ * device, so rp1_bind() can then scan the DT subtree for Ethernet,
++ * GPIO, clocks, and USB children.
++ */
++
 +static int rp1_pcie_read_config(const struct udevice *bus, pci_dev_t bdf,
 +				uint offset, ulong *valuep, enum pci_size_t size)
 +{
 +	/*
 +	 * Leaving this call because pci subsystem calls for read_config
 +	 * and produces error then this callback is not set.
-+	 * Just return 0 here.
++	 * Just return 0 here.s
 +	 */
 +	*valuep = 0;
 +	return 0;
@@ -1803,29 +1556,33 @@ index 00000000000..1899cd023ab
 +};
 +
 +U_BOOT_DRIVER(rp1_driver) = {
-+	.name			= RP1_DRIVER_NAME,
-+	.id			= UCLASS_PCI_GENERIC,
-+	.probe			= rp1_probe,
-+	.bind			= rp1_bind,
-+	.priv_auto		= sizeof(struct rp1_dev),
-+	.ops			= &rp1_pcie_ops,
++	.name			 = RP1_DRIVER_NAME,
++	.id			   = UCLASS_PCI_GENERIC,
++	.probe		 = rp1_probe,
++	.bind			 = rp1_bind,
++	.priv_auto = sizeof(struct rp1_dev),
++	.ops			 = &rp1_pcie_ops,
 +};
 +
 +U_BOOT_PCI_DEVICE(rp1_driver, dev_id_table);
+\ No newline at end of file
 diff --git a/drivers/net/Kconfig b/drivers/net/Kconfig
-index 4fda1b0c28c..8ab14396cd2 100644
+index 4fda1b0c28c..75172930be4 100644
 --- a/drivers/net/Kconfig
 +++ b/drivers/net/Kconfig
-@@ -569,6 +569,7 @@ config MACB
+@@ -569,6 +569,10 @@ config MACB
  	bool "Cadence MACB/GEM Ethernet Interface"
  	depends on ARM || RISCV
  	select PHYLIB
++	select DM_RESET
 +	select DM_GPIO
++	select CLK
++	imply BOARD_LATE_INIT
  	help
  	  The Cadence MACB ethernet interface is found on many Atmel
  	  AT91 and SAMA5 parts.  This driver also supports the Cadence
 diff --git a/drivers/net/macb.c b/drivers/net/macb.c
-index cbf5f605518..8b0e5976e26 100644
+index cbf5f605518..e4b15447bc7 100644
 --- a/drivers/net/macb.c
 +++ b/drivers/net/macb.c
 @@ -31,6 +31,7 @@
@@ -1876,12 +1633,12 @@ index cbf5f605518..8b0e5976e26 100644
  	macb_mdio_write(macb, phy_adr, reg, value);
 +	return 0;
 +}
- 
++
 +static int macb_miiphy_reset(struct mii_dev *bus)
 +{
 +	struct udevice *dev = eth_get_dev_by_name(bus->name);
 +	struct macb_device *macb = dev_get_priv(dev);
-+
+ 
 +	if (!dm_gpio_is_valid(&macb->phy_reset_gpio))
 +		return 0;
 +
@@ -1916,8 +1673,8 @@ index cbf5f605518..8b0e5976e26 100644
 -		invalidate_dcache_range(macb->tx_ring_dma,
 -			ALIGN(macb->tx_ring_dma + MACB_TX_DMA_DESC_SIZE,
 -			      PKTALIGN));
-+		invalidate_dcache_range((unsigned long)macb->tx_ring,
-+					ALIGN((unsigned long)macb->tx_ring +
++		invalidate_dcache_range((ulong)macb->tx_ring,
++					ALIGN((ulong)macb->tx_ring +
 +					      MACB_TX_DMA_DESC_SIZE, PKTALIGN));
  }
  
@@ -1930,8 +1687,8 @@ index cbf5f605518..8b0e5976e26 100644
 +				   (ulong)(macb->rx_ring) + ALIGN(MACB_RX_DMA_DESC_SIZE, PKTALIGN));
  	else
 -		flush_dcache_range(macb->tx_ring_dma, macb->tx_ring_dma +
-+		flush_dcache_range((unsigned long)macb->tx_ring,
-+				   (unsigned long)macb->tx_ring +
++		flush_dcache_range((ulong)macb->tx_ring,
++				   (ulong)macb->tx_ring +
  				   ALIGN(MACB_TX_DMA_DESC_SIZE, PKTALIGN));
  }
  
@@ -2003,7 +1760,22 @@ index cbf5f605518..8b0e5976e26 100644
  static int macb_phy_init(struct udevice *dev, const char *name)
  {
  	struct macb_device *macb = dev_get_priv(dev);
-@@ -812,8 +861,8 @@ static int gmac_init_multi_queues(struct macb_device *macb)
+@@ -675,6 +724,14 @@ static int macb_phy_init(struct udevice *dev, const char *name)
+ 	arch_get_mdio_control(name);
+ 	/* If port is not fixed -> setup PHY */
+ 	if (!macb_port_is_fixed_link(macb)) {
++		/* Deassert PHY reset before scanning MDIO */
++		if (dm_gpio_is_valid(&macb->phy_reset_gpio)) {
++			dm_gpio_set_value(&macb->phy_reset_gpio, 1);
++			mdelay(macb->phy_reset_ms);
++			dm_gpio_set_value(&macb->phy_reset_gpio, 0);
++			mdelay(15);
++		}
++
+ 		/* Auto-detect phy_addr */
+ 		ret = macb_phy_find(macb, name);
+ 		if (ret)
+@@ -812,8 +869,8 @@ static int gmac_init_multi_queues(struct macb_device *macb)
  
  	macb->dummy_desc->ctrl = MACB_BIT(TX_USED);
  	macb->dummy_desc->addr = 0;
@@ -2014,7 +1786,7 @@ index cbf5f605518..8b0e5976e26 100644
  	paddr = macb->dummy_desc_dma;
  
  	for (i = 1; i < num_queues; i++) {
-@@ -917,6 +966,14 @@ static int _macb_init(struct udevice *dev, const char *name)
+@@ -917,6 +974,15 @@ static int _macb_init(struct udevice *dev, const char *name)
  		macb_writel(macb, TBQPH, upper_32_bits(macb->tx_ring_dma));
  	}
  
@@ -2023,13 +1795,14 @@ index cbf5f605518..8b0e5976e26 100644
 +	 * connected over PCIe.
 +	 */
 +	if ((IS_ENABLED(CONFIG_BCM2712)) &&
-+			(gd_board_type() == BCM2712_RPI_5_B_NEW))
++			(gd_board_type() >= RPI_BOARD_TYPE_RPI5_FAMILY_MIN &&
++	     gd_board_type() <= RPI_BOARD_TYPE_RPI5_FAMILY_MAX))
 +		gem_init_axi(macb);
 +
  	if (macb_is_gem(macb)) {
  		/* Initialize DMA properties */
  		gmac_configure_dma(macb);
-@@ -1078,7 +1135,7 @@ static u32 macb_dbw(struct macb_device *macb)
+@@ -1078,7 +1144,7 @@ static u32 macb_dbw(struct macb_device *macb)
  	}
  }
  
@@ -2038,7 +1811,7 @@ index cbf5f605518..8b0e5976e26 100644
  {
  	int id = 0;	/* This is not used by functions we call */
  	u32 ncfgr;
-@@ -1092,13 +1149,23 @@ static void _macb_eth_initialize(struct macb_device *macb)
+@@ -1092,13 +1158,23 @@ static void _macb_eth_initialize(struct macb_device *macb)
  	macb->rx_buffer = dma_alloc_coherent(macb->rx_buffer_size *
  					     MACB_RX_RING_SIZE,
  					     &macb->rx_buffer_dma);
@@ -2064,7 +1837,7 @@ index cbf5f605518..8b0e5976e26 100644
  	/*
  	 * Do some basic initialization so that we at least can talk
  	 * to the PHY
-@@ -1172,11 +1239,19 @@ static const struct eth_ops macb_eth_ops = {
+@@ -1172,11 +1248,19 @@ static const struct eth_ops macb_eth_ops = {
  static int macb_enable_clk(struct udevice *dev)
  {
  	struct macb_device *macb = dev_get_priv(dev);
@@ -2087,7 +1860,7 @@ index cbf5f605518..8b0e5976e26 100644
  	if (ret)
  		return -EINVAL;
  
-@@ -1189,11 +1264,17 @@ static int macb_enable_clk(struct udevice *dev)
+@@ -1189,11 +1273,17 @@ static int macb_enable_clk(struct udevice *dev)
  	if (ret && ret != -ENOSYS)
  		return ret;
  
@@ -2109,7 +1882,7 @@ index cbf5f605518..8b0e5976e26 100644
  
  	return 0;
  }
-@@ -1224,6 +1305,7 @@ static int macb_eth_probe(struct udevice *dev)
+@@ -1224,6 +1314,7 @@ static int macb_eth_probe(struct udevice *dev)
  	if (macb->phy_interface == PHY_INTERFACE_MODE_NA)
  		return -EINVAL;
  
@@ -2117,7 +1890,7 @@ index cbf5f605518..8b0e5976e26 100644
  	/* Read phyaddr from DT */
  	if (!dev_read_phandle_with_args(dev, "phy-handle", NULL, 0, 0,
  					&phandle_args))
-@@ -1249,7 +1331,7 @@ static int macb_eth_probe(struct udevice *dev)
+@@ -1249,7 +1340,7 @@ static int macb_eth_probe(struct udevice *dev)
  		return ret;
  #endif
  
@@ -2126,7 +1899,7 @@ index cbf5f605518..8b0e5976e26 100644
  
  #if defined(CONFIG_CMD_MII) || defined(CONFIG_PHYLIB)
  	macb->bus = mdio_alloc();
-@@ -1258,6 +1340,7 @@ static int macb_eth_probe(struct udevice *dev)
+@@ -1258,6 +1349,7 @@ static int macb_eth_probe(struct udevice *dev)
  	strlcpy(macb->bus->name, dev->name, MDIO_NAME_LEN);
  	macb->bus->read = macb_miiphy_read;
  	macb->bus->write = macb_miiphy_write;
@@ -2134,7 +1907,7 @@ index cbf5f605518..8b0e5976e26 100644
  
  	ret = mdio_register(macb->bus);
  	if (ret < 0)
-@@ -1272,6 +1355,9 @@ static int macb_eth_remove(struct udevice *dev)
+@@ -1272,6 +1364,9 @@ static int macb_eth_remove(struct udevice *dev)
  {
  	struct macb_device *macb = dev_get_priv(dev);
  
@@ -2144,7 +1917,7 @@ index cbf5f605518..8b0e5976e26 100644
  #ifdef CONFIG_PHYLIB
  	free(macb->phydev);
  #endif
-@@ -1299,6 +1385,7 @@ static int macb_eth_of_to_plat(struct udevice *dev)
+@@ -1299,6 +1394,7 @@ static int macb_eth_of_to_plat(struct udevice *dev)
  	void *blob = (void *)gd->fdt_blob;
  	int node = dev_of_offset(dev);
  	int fl_node, speed_fdt;
@@ -2152,43 +1925,62 @@ index cbf5f605518..8b0e5976e26 100644
  
  	/* fetch 'fixed-link' property */
  	fl_node = fdt_subnode_offset(blob, node, "fixed-link");
-@@ -1322,6 +1409,16 @@ static int macb_eth_of_to_plat(struct udevice *dev)
+@@ -1322,6 +1418,36 @@ static int macb_eth_of_to_plat(struct udevice *dev)
  	if (!pdata->iobase)
  		return -EINVAL;
  
 +	/* optional PHY reset-related properties */
 +	ret = gpio_request_by_name(dev, "phy-reset-gpios", 0, &macb->phy_reset_gpio,
 +				   GPIOD_IS_OUT);
++	if (ret == -ENOENT) {
++		/*
++		 * Fallback: check "reset-gpios" on the mdio subnode.
++		 * The upstream DT binding places PHY reset on the MDIO bus
++		 * node rather than the MAC node.
++		 */
++		ofnode mdio_node = ofnode_find_subnode(dev_ofnode(dev), "mdio");
++
++		if (ofnode_valid(mdio_node)) {
++			ret = gpio_request_by_name_nodev(mdio_node, "reset-gpios", 0,
++							 &macb->phy_reset_gpio,
++							 GPIOD_IS_OUT);
++			if (ret == -ENOENT)
++				ret = 0;
++			if (!ret)
++				macb->phy_reset_ms = ofnode_read_s32_default(
++					mdio_node, "reset-delay-us", 10000) / 1000;
++		}
++	}
 +	if (ret && ret != -ENOENT) {
 +		printf("Failed to obtain phy-reset gpio\n");
 +		return ret;
 +	}
 +
-+	macb->phy_reset_ms = ofnode_read_s32_default(dev_ofnode(dev), "phy-reset-duration", 10);
++	if (!macb->phy_reset_ms)
++		macb->phy_reset_ms = ofnode_read_s32_default(dev_ofnode(dev), "phy-reset-duration", 10);
 +
  	return macb_late_eth_of_to_plat(dev);
  }
  
-@@ -1360,6 +1457,13 @@ static const struct macb_config sama7g5_emac_config = {
+@@ -1360,6 +1486,13 @@ static const struct macb_config sama7g5_emac_config = {
  	.usrio = &sama7g5_usrio,
  };
  
 +static const struct macb_config rp1_gem_config = {
 +	.dma_burst_length = 16,
 +	.hw_dma_cap = HW_DMA_CAP_64B,
-+	.clk_init = NULL,
++	.clk_init = macb_sama7g5_clk_init,
 +	.usrio = &sama7g5_usrio,
 +};
 +
  static const struct udevice_id macb_eth_ids[] = {
  	{ .compatible = "cdns,macb" },
  	{ .compatible = "cdns,at91sam9260-macb" },
-@@ -1374,6 +1478,8 @@ static const struct udevice_id macb_eth_ids[] = {
+@@ -1374,6 +1507,7 @@ static const struct udevice_id macb_eth_ids[] = {
  	{ .compatible = "cdns,zynq-gem" },
  	{ .compatible = "sifive,fu540-c000-gem",
  	  .data = (ulong)&sifive_config },
-+	{ .compatible = "raspberrypi,rp1-gem",
-+	  .data = (ulong)&rp1_gem_config },
++	{ .compatible = "raspberrypi,rp1-gem", .data = (ulong)&rp1_gem_config },
  	{ }
  };
  
@@ -2504,10 +2296,94 @@ index b06cb5c6d51..ad1a260f9ab 100644
  		goto free_id;
  	}
 diff --git a/drivers/pci/pci-uclass.c b/drivers/pci/pci-uclass.c
-index c370f8c6400..4092e8ff5a9 100644
+index c370f8c6400..6518f299a69 100644
 --- a/drivers/pci/pci-uclass.c
 +++ b/drivers/pci/pci-uclass.c
-@@ -1200,6 +1200,7 @@ static int pci_uclass_post_probe(struct udevice *bus)
+@@ -783,6 +783,83 @@ static int pci_find_and_bind_driver(struct udevice *parent,
+ 	if (ofnode_valid(dev_ofnode(parent)))
+ 		pci_dev_find_ofnode(parent, bdf, &node);
+ 
++	/*
++	 * If no ofnode found at the current bus level, search the root
++	 * controller's DT children and siblings by PCI vendor/device
++	 * compatible string.  This handles topologies where a PCI endpoint
++	 * is described near the host controller in the DT but sits behind
++	 * a bridge in the actual PCI topology.
++	 *
++	 * Two search scopes are needed because firmware DTBs vary:
++	 *  - Upstream/Talos kernel DTBs place rp1_nexus as a child of
++	 *    pcie@1000120000 -> search controller's children.
++	 *  - Raspberry Pi firmware DTBs place rp1_nexus as a sibling of
++	 *    pcie@1000120000 under /axi -> search controller's parent's
++	 *    children.
++	 *
++	 * We use ofnode_device_is_compatible() with formatted PCI
++	 * compatible strings instead of ofnode_read_pci_vendev() because
++	 * firmware DTBs may use short device IDs (e.g. "pci1de4,1"
++	 * instead of "pci1de4,0001") which ofnode_read_pci_vendev()
++	 * cannot parse.
++	 */
++	if (!ofnode_valid(node)) {
++		struct udevice *ctlr = pci_get_controller(parent);
++
++		if (ofnode_valid(dev_ofnode(ctlr))) {
++			ofnode cnode;
++			/*
++			 * Format PCI compatible strings to match against.
++			 * Try both "pciVVVV,DDDD" (standard 4-digit) and
++			 * "pciVVVV,D+" (firmware short form).
++			 */
++			char compat_long[20], compat_short[20];
++
++			snprintf(compat_long, sizeof(compat_long),
++				 "pci%04x,%04x",
++				 find_id->vendor, find_id->device);
++			snprintf(compat_short, sizeof(compat_short),
++				 "pci%04x,%x",
++				 find_id->vendor, find_id->device);
++
++			/* Search controller's own DT children first */
++			if (ctlr != parent) {
++				dev_for_each_subnode(cnode, ctlr) {
++					if (ofnode_device_is_compatible(cnode,
++								compat_long) ||
++					    ofnode_device_is_compatible(cnode,
++								compat_short)) {
++						node = cnode;
++						break;
++					}
++				}
++			}
++
++			/*
++			 * Search siblings of the controller (children of
++			 * controller's parent node, e.g. /axi/).
++			 */
++			if (!ofnode_valid(node)) {
++				ofnode pnode;
++
++				pnode = ofnode_get_parent(dev_ofnode(ctlr));
++				if (ofnode_valid(pnode)) {
++					ofnode_for_each_subnode(cnode, pnode) {
++						if (ofnode_device_is_compatible(
++							    cnode,
++							    compat_long) ||
++						    ofnode_device_is_compatible(
++							    cnode,
++							    compat_short)) {
++							node = cnode;
++							break;
++						}
++					}
++				}
++			}
++		}
++	}
++
+ 	if (ofnode_valid(node) && !ofnode_is_enabled(node)) {
+ 		debug("%s: Ignoring disabled device\n", __func__);
+ 		return log_msg_ret("dis", -EPERM);
+@@ -1200,6 +1277,7 @@ static int pci_uclass_post_probe(struct udevice *bus)
  static int pci_uclass_child_post_bind(struct udevice *dev)
  {
  	struct pci_child_plat *pplat;
@@ -2515,7 +2391,7 @@ index c370f8c6400..4092e8ff5a9 100644
  
  	if (!dev_has_ofnode(dev))
  		return 0;
-@@ -1207,7 +1208,13 @@ static int pci_uclass_child_post_bind(struct udevice *dev)
+@@ -1207,10 +1285,20 @@ static int pci_uclass_child_post_bind(struct udevice *dev)
  	pplat = dev_get_parent_plat(dev);
  
  	/* Extract vendor id and device id if available */
@@ -2529,9 +2405,52 @@ index c370f8c6400..4092e8ff5a9 100644
 +	}
  
  	/* Extract the devfn from fdt_pci_addr */
- 	pplat->devfn = pci_get_devfn(dev);
+-	pplat->devfn = pci_get_devfn(dev);
++	err = pci_get_devfn(dev);
++	if (err < 0)
++		pplat->devfn = -1;
++	else
++		pplat->devfn = err;
+ 
+ 	return 0;
+ }
+@@ -1459,7 +1547,20 @@ phys_addr_t dm_pci_bus_to_phys(struct udevice *dev, pci_addr_t bus_addr,
+ 		return res->phys_start + offset;
+ 	}
+ 
+-	puts("dm_pci_bus_to_phys: invalid physical address\n");
++	printf("dm_pci_bus_to_phys: invalid physical address "
++	       "(bus_addr=0x%llx, len=0x%lx, mask=0x%lx, flags=0x%lx, "
++	       "dev=%s, ctlr=%s, regions=%d, caller=%p)\n",
++	       (unsigned long long)bus_addr, (unsigned long)len,
++	       mask, flags, dev->name, ctlr->name,
++	       hose->region_count, __builtin_return_address(0));
++	for (i = 0; i < hose->region_count; i++) {
++		res = &hose->regions[i];
++		printf("  region[%d]: bus=0x%llx phys=0x%llx size=0x%llx flags=0x%lx\n",
++		       i, (unsigned long long)res->bus_start,
++		       (unsigned long long)res->phys_start,
++		       (unsigned long long)res->size,
++		       res->flags);
++	}
+ 	return 0;
+ }
+ 
+@@ -1499,7 +1600,11 @@ pci_addr_t dm_pci_phys_to_bus(struct udevice *dev, phys_addr_t phys_addr,
+ 		return res->bus_start + offset;
+ 	}
+ 
+-	puts("dm_pci_phys_to_bus: invalid physical address\n");
++	printf("dm_pci_phys_to_bus: invalid physical address "
++	       "(phys_addr=0x%llx, len=0x%lx, mask=0x%lx, flags=0x%lx, "
++	       "dev=%s, caller=%p)\n",
++	       (unsigned long long)phys_addr, (unsigned long)len,
++	       mask, flags, dev->name, __builtin_return_address(0));
+ 	return 0;
+ }
+ 
 diff --git a/drivers/pci/pcie_brcmstb.c b/drivers/pci/pcie_brcmstb.c
-index f089c48f028..6e8445c4087 100644
+index f089c48f028..ce39bcf794e 100644
 --- a/drivers/pci/pcie_brcmstb.c
 +++ b/drivers/pci/pcie_brcmstb.c
 @@ -21,9 +21,12 @@
@@ -3173,34 +3092,40 @@ index f089c48f028..6e8445c4087 100644
  
  	/* Mask all interrupts since we are not handling any yet */
  	writel(0xffffffff, base + PCIE_MSI_INTR2_MASK_SET);
-@@ -426,8 +904,7 @@ static int brcm_pcie_probe(struct udevice *dev)
+@@ -425,32 +903,31 @@ static int brcm_pcie_probe(struct udevice *dev)
+ 	if (pcie->gen)
  		brcm_pcie_set_gen(pcie, pcie->gen);
  
- 	/* Unassert the fundamental reset */
+-	/* Unassert the fundamental reset */
 -	clrbits_le32(pcie->base + PCIE_RGR1_SW_INIT_1,
 -		     PCIE_RGR1_SW_INIT_1_PERST_MASK);
-+	pcie->cfg->perst_set(pcie, 0);
- 
+-
  	/*
- 	 * Wait for 100ms after PERST# deassertion; see PCIe CEM specification
-@@ -446,11 +923,35 @@ static int brcm_pcie_probe(struct udevice *dev)
- 		return -EINVAL;
- 	}
- 
--	if (!brcm_pcie_rc_mode(pcie)) {
-+	if (!pcie->cfg->rc_mode(pcie)) {
- 		printf("PCIe misconfigured; is in EP mode\n");
- 		return -EINVAL;
- 	}
- 
-+	/*
-+	 * Inbound window setup
-+	 */
+-	 * Wait for 100ms after PERST# deassertion; see PCIe CEM specification
+-	 * sections 2.2, PCIe r5.0, 6.6.1.
+-	 */
+-	mdelay(100);
+-
+-	/* Give the RC/EP time to wake up, before trying to configure RC.
+-	 * Intermittently check status for link-up, up to a total of 100ms.
++	 * Inbound window setup — must be configured before link training
++	 * so the RC is ready for DMA when the endpoint comes up.
+ 	 */
+-	for (i = 0; i < 100 && !brcm_pcie_link_up(pcie); i += 5)
+-		mdelay(5);
 +	num_inbound_wins = pcie->cfg->get_inbound_wins(pcie, inbound_wins);
 +	if (num_inbound_wins < 0)
 +		return num_inbound_wins;
 +	brcm_set_inbound_win_registers(pcie, inbound_wins, num_inbound_wins+1);
-+
+ 
+-	if (!brcm_pcie_link_up(pcie)) {
+-		printf("PCIe BRCM: link down\n");
+-		return -EINVAL;
+-	}
+-
+-	if (!brcm_pcie_rc_mode(pcie)) {
+-		printf("PCIe misconfigured; is in EP mode\n");
+-		return -EINVAL;
 +	tmp = readl(base + PCIE_MISC_MISC_CTRL);
 +	for (int memc = 0; memc < pcie->num_memc; memc++) {
 +		scb_size_val = ilog2(pcie->memc_size[memc]) - 15;
@@ -3211,26 +3136,66 @@ index f089c48f028..6e8445c4087 100644
 +			u32p_replace_bits(&tmp, scb_size_val, PCIE_MISC_MISC_CTRL_SCB1_SIZE_MASK);
 +		else if (memc == 2)
 +			u32p_replace_bits(&tmp, scb_size_val, PCIE_MISC_MISC_CTRL_SCB2_SIZE_MASK);
-+	}
+ 	}
 +	writel(tmp, base + PCIE_MISC_MISC_CTRL);
-+
+ 
 +	/*
 +	 * Outbound window setup
 +	 */
  	for (i = 0; i < hose->region_count; i++) {
  		struct pci_region *reg = &hose->regions[i];
  
-@@ -505,6 +1006,9 @@ static int brcm_pcie_probe(struct udevice *dev)
- 	clrbits_le32(base + PCIE_RC_CFG_PRIV1_LINK_CAPABILITY,
- 		     LINK_CAPABILITY_ASPM_SUPPORT_MASK);
+@@ -473,6 +950,49 @@ static int brcm_pcie_probe(struct udevice *dev)
+ 	clrsetbits_le32(base + PCIE_RC_CFG_PRIV1_ID_VAL3,
+ 			PCIE_RC_CFG_PRIV1_ID_VAL3_CLASS_CODE_MASK, 0x060400);
  
-+	if (pcie->cfg->post_setup)
-+		return pcie->cfg->post_setup(pcie);
++	/*
++	 * Run SoC-specific post-setup BEFORE link training.
++	 *
++	 * For BCM2712 this configures the SerDes PLL via MDIO to use the
++	 * 54MHz crystal oscillator (xosc) reference clock.  Without this,
++	 * the PLL runs with default settings and may fail to achieve lock,
++	 * causing PHYLINKUP to never assert and link training to fail.
++	 *
++	 * The Linux kernel's pcie-brcmstb driver calls post_setup() inside
++	 * brcm_pcie_setup() — before brcm_pcie_start_link() deasserts
++	 * PERST#.  Match that ordering here.
++	 */
++	if (pcie->cfg->post_setup) {
++		ret = pcie->cfg->post_setup(pcie);
++		if (ret)
++			return ret;
++	}
 +
- 	return 0;
- }
- 
-@@ -514,14 +1018,24 @@ static int brcm_pcie_remove(struct udevice *dev)
++	/* Unassert the fundamental reset — this starts link training */
++	pcie->cfg->perst_set(pcie, 0);
++
++	/*
++	 * Wait for 100ms after PERST# deassertion; see PCIe CEM specification
++	 * sections 2.2, PCIe r5.0, 6.6.1.
++	 */
++	mdelay(100);
++
++	/* Give the RC/EP time to wake up, before trying to configure RC.
++	 * Intermittently check status for link-up, up to a total of 100ms.
++	 */
++	for (i = 0; i < 100 && !brcm_pcie_link_up(pcie); i += 5)
++		mdelay(5);
++
++	if (!brcm_pcie_link_up(pcie)) {
++		printf("PCIe BRCM: link down\n");
++		return -EINVAL;
++	}
++
++	if (!pcie->cfg->rc_mode(pcie)) {
++		printf("PCIe misconfigured; is in EP mode\n");
++		return -EINVAL;
++	}
++
+ 	if (pcie->ssc) {
+ 		ret = brcm_pcie_set_ssc(pcie->base);
+ 		if (!ret)
+@@ -514,14 +1034,24 @@ static int brcm_pcie_remove(struct udevice *dev)
  	void __iomem *base = pcie->base;
  
  	/* Assert fundamental reset */
@@ -3258,7 +3223,7 @@ index f089c48f028..6e8445c4087 100644
  
  	return 0;
  }
-@@ -546,6 +1060,11 @@ static int brcm_pcie_of_to_plat(struct udevice *dev)
+@@ -546,6 +1076,11 @@ static int brcm_pcie_of_to_plat(struct udevice *dev)
  	else
  		pcie->gen = max_link_speed;
  
@@ -3270,7 +3235,7 @@ index f089c48f028..6e8445c4087 100644
  	return 0;
  }
  
-@@ -554,8 +1073,40 @@ static const struct dm_pci_ops brcm_pcie_ops = {
+@@ -554,8 +1089,40 @@ static const struct dm_pci_ops brcm_pcie_ops = {
  	.write_config	= brcm_pcie_write_config,
  };
  
@@ -3312,6 +3277,289 @@ index f089c48f028..6e8445c4087 100644
  	{ }
  };
  
+diff --git a/drivers/pinctrl/broadcom/Kconfig b/drivers/pinctrl/broadcom/Kconfig
+index b01b725583a..f49d0402b6b 100644
+--- a/drivers/pinctrl/broadcom/Kconfig
++++ b/drivers/pinctrl/broadcom/Kconfig
+@@ -13,3 +13,13 @@ config PINCTRL_BCM6838
+ 	help
+ 	   Support pin multiplexing and pin configuration control on
+ 	   Broadcom's 6838 family of SoCs.
++
++config PINCTRL_BCM2712
++	depends on ARCH_BCM283X && PINCTRL_FULL && OF_CONTROL
++	default y if BCM2712
++	bool "Broadcom BCM2712 pin control driver"
++	help
++	   Support pin multiplexing and pin configuration control on
++	   Broadcom's BCM2712 SoC (Raspberry Pi 5).
++	   This driver provides pinctrl functionality for configuring
++	   GPIO pin functions and pull-up/down resistors.
+diff --git a/drivers/pinctrl/broadcom/Makefile b/drivers/pinctrl/broadcom/Makefile
+index f94f3ce7c9c..6ffa04007f6 100644
+--- a/drivers/pinctrl/broadcom/Makefile
++++ b/drivers/pinctrl/broadcom/Makefile
+@@ -6,3 +6,4 @@
+ 
+ obj-$(CONFIG_PINCTRL_BCM283X) += pinctrl-bcm283x.o
+ obj-$(CONFIG_PINCTRL_BCM6838) += pinctrl-bcm6838.o
++obj-$(CONFIG_PINCTRL_BCM2712) += pinctrl-bcm2712.o
+diff --git a/drivers/pinctrl/broadcom/pinctrl-bcm2712.c b/drivers/pinctrl/broadcom/pinctrl-bcm2712.c
+new file mode 100644
+index 00000000000..1f34d82fa83
+--- /dev/null
++++ b/drivers/pinctrl/broadcom/pinctrl-bcm2712.c
+@@ -0,0 +1,250 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * Pinctrl driver for Broadcom BCM2712 (Raspberry Pi 5)
++ *
++ * Copyright (C) 2024-2025 Equinix Metal
++ * Based on Linux driver by:
++ * Copyright (C) 2024-2025 Ivan T. Ivanov, Andrea della Porta
++ * Copyright (C) 2021-3 Raspberry Pi Ltd.
++ *
++ * Based on pinctrl-bcm283x.c and Linux pinctrl-brcmstb-bcm2712.c
++ */
++
++#include <dm.h>
++#include <dm/pinctrl.h>
++#include <errno.h>
++#include <asm/io.h>
++#include <linux/bitops.h>
++
++#define BCM2712_FSEL_COUNT	8
++#define BCM2712_FSEL_MASK	GENMASK(3, 0)
++
++/* Register offsets */
++#define BCM2712_FSEL_REG(pin)		((pin) / 8)
++#define BCM2712_FSEL_SHIFT(pin)		(((pin) % 8) * 4)
++
++/* Pull-up/down registers (BCM2711-style for BCM2712) */
++#define BCM2712_PUD_CNTRL_REG0		57
++#define BCM2712_PUD_REG_OFFSET(pin)	((pin) / 16)
++#define BCM2712_PUD_REG_SHIFT(pin)	(((pin) % 16) * 2)
++#define BCM2712_PUD_MASK		GENMASK(1, 0)
++
++/* Pull values */
++#define BCM2712_PUD_OFF		0x0
++#define BCM2712_PUD_DOWN	0x1
++#define BCM2712_PUD_UP		0x2
++
++struct bcm2712_pinctrl_priv {
++	void __iomem *base;
++};
++
++/**
++ * bcm2712_gpio_set_func() - Set pin function
++ * @dev: pinctrl device
++ * @pin: GPIO pin number
++ * @func: function selector (0-7)
++ */
++static void bcm2712_gpio_set_func(struct udevice *dev, unsigned int pin,
++				  unsigned int func)
++{
++	struct bcm2712_pinctrl_priv *priv = dev_get_priv(dev);
++	u32 reg_offset = BCM2712_FSEL_REG(pin);
++	u32 bit_shift = BCM2712_FSEL_SHIFT(pin);
++
++	clrsetbits_le32(priv->base + (reg_offset * 4),
++			BCM2712_FSEL_MASK << bit_shift,
++			(func & BCM2712_FSEL_MASK) << bit_shift);
++}
++
++/**
++ * bcm2712_gpio_get_func() - Get current pin function
++ * @dev: pinctrl device
++ * @pin: GPIO pin number
++ * @return: function selector (0-7)
++ */
++static unsigned int bcm2712_gpio_get_func(struct udevice *dev, unsigned int pin)
++{
++	struct bcm2712_pinctrl_priv *priv = dev_get_priv(dev);
++	u32 reg_offset = BCM2712_FSEL_REG(pin);
++	u32 bit_shift = BCM2712_FSEL_SHIFT(pin);
++	u32 val;
++
++	val = readl(priv->base + (reg_offset * 4));
++	return (val >> bit_shift) & BCM2712_FSEL_MASK;
++}
++
++/**
++ * bcm2712_gpio_set_pull() - Configure pull-up/down resistor
++ * @dev: pinctrl device
++ * @pin: GPIO pin number
++ * @pull: pull setting (BCM2712_PUD_OFF, BCM2712_PUD_DOWN, BCM2712_PUD_UP)
++ */
++static void bcm2712_gpio_set_pull(struct udevice *dev, unsigned int pin,
++				  unsigned int pull)
++{
++	struct bcm2712_pinctrl_priv *priv = dev_get_priv(dev);
++	u32 reg_offset = BCM2712_PUD_CNTRL_REG0 + BCM2712_PUD_REG_OFFSET(pin);
++	u32 bit_shift = BCM2712_PUD_REG_SHIFT(pin);
++
++	clrsetbits_le32(priv->base + (reg_offset * 4),
++			BCM2712_PUD_MASK << bit_shift,
++			(pull & BCM2712_PUD_MASK) << bit_shift);
++}
++
++/**
++ * bcm2712_pinctrl_set_state() - Configure pinctrl state from device tree
++ * @dev: pinctrl device
++ * @config: configuration node
++ * @return: 0 on success, negative error code on failure
++ */
++static int bcm2712_pinctrl_set_state(struct udevice *dev,
++				     struct udevice *config)
++{
++	u32 pin_arr[32];
++	u32 func_arr[32];
++	u32 pull_arr[32];
++	int pin_count = 0;
++	int func_count = 0;
++	int pull_count = 0;
++	int i;
++
++	/* Read pin array */
++	pin_count = dev_read_u32_array(config, "pins", pin_arr,
++				       ARRAY_SIZE(pin_arr));
++	if (pin_count <= 0) {
++		/* Try legacy brcm,pins property */
++		pin_count = dev_read_u32_array(config, "brcm,pins", pin_arr,
++					       ARRAY_SIZE(pin_arr));
++	}
++
++	if (pin_count <= 0) {
++		debug("%s: No pins specified in config %s\n",
++		      __func__, config->name);
++		return -EINVAL;
++	}
++
++	/* Read function array */
++	func_count = dev_read_u32_array(config, "function", func_arr,
++					ARRAY_SIZE(func_arr));
++	if (func_count <= 0) {
++		/* Try legacy brcm,function property */
++		func_count = dev_read_u32_default(config, "brcm,function", -1);
++		if (func_count >= 0) {
++			func_arr[0] = func_count;
++			func_count = 1;
++		}
++	}
++
++	if (func_count <= 0) {
++		debug("%s: No function specified in config %s\n",
++		      __func__, config->name);
++		return -EINVAL;
++	}
++
++	/* Validate function count */
++	if (func_count != 1 && func_count != pin_count) {
++		debug("%s: Function count (%d) must be 1 or match pin count (%d)\n",
++		      __func__, func_count, pin_count);
++		return -EINVAL;
++	}
++
++	/* Read pull array (optional) */
++	pull_count = dev_read_u32_array(config, "bias-pull-up", NULL, 0);
++	if (pull_count < 0) {
++		pull_count = dev_read_u32_array(config, "bias-pull-down",
++						NULL, 0);
++		if (pull_count >= 0) {
++			/* bias-pull-down present */
++			for (i = 0; i < pin_count; i++)
++				pull_arr[i] = BCM2712_PUD_DOWN;
++			pull_count = pin_count;
++		}
++	} else if (pull_count >= 0) {
++		/* bias-pull-up present */
++		for (i = 0; i < pin_count; i++)
++			pull_arr[i] = BCM2712_PUD_UP;
++		pull_count = pin_count;
++	}
++
++	/* Try legacy brcm,pull property */
++	if (pull_count <= 0) {
++		pull_count = dev_read_u32_array(config, "brcm,pull", pull_arr,
++						ARRAY_SIZE(pull_arr));
++	}
++
++	/* Apply configuration */
++	for (i = 0; i < pin_count; i++) {
++		u32 pin = pin_arr[i];
++		u32 func = (func_count == 1) ? func_arr[0] : func_arr[i];
++
++		/* Set function */
++		bcm2712_gpio_set_func(dev, pin, func);
++
++		/* Set pull if specified */
++		if (pull_count > 0) {
++			u32 pull = (pull_count == 1) ? pull_arr[0] : pull_arr[i];
++			bcm2712_gpio_set_pull(dev, pin, pull);
++		}
++	}
++
++	return 0;
++}
++
++/**
++ * bcm2712_pinctrl_get_gpio_mux() - Get GPIO mux setting
++ * @dev: pinctrl device
++ * @banknum: GPIO bank number (always 0 for BCM2712)
++ * @index: GPIO index within bank
++ * @return: mux value
++ */
++static int bcm2712_pinctrl_get_gpio_mux(struct udevice *dev, int banknum,
++					int index)
++{
++	if (banknum != 0)
++		return -EINVAL;
++
++	return bcm2712_gpio_get_func(dev, index);
++}
++
++/**
++ * bcm2712_pinctrl_of_to_plat() - Parse device tree properties
++ * @dev: pinctrl device
++ * @return: 0 on success, negative error code on failure
++ */
++static int bcm2712_pinctrl_of_to_plat(struct udevice *dev)
++{
++	struct bcm2712_pinctrl_priv *priv = dev_get_priv(dev);
++
++	priv->base = dev_read_addr_ptr(dev);
++	if (!priv->base) {
++		debug("%s: Failed to get base address\n", __func__);
++		return -EINVAL;
++	}
++
++	return 0;
++}
++
++static const struct pinctrl_ops bcm2712_pinctrl_ops = {
++	.set_state = bcm2712_pinctrl_set_state,
++	.get_gpio_mux = bcm2712_pinctrl_get_gpio_mux,
++};
++
++static const struct udevice_id bcm2712_pinctrl_match[] = {
++	{ .compatible = "brcm,bcm2712-pinctrl" },
++	{ .compatible = "brcm,bcm2712-aon-pinctrl" },
++	{ .compatible = "brcm,bcm2712c0-pinctrl" },
++	{ .compatible = "brcm,bcm2712c0-aon-pinctrl" },
++	{ .compatible = "brcm,bcm2712d0-pinctrl" },
++	{ .compatible = "brcm,bcm2712d0-aon-pinctrl" },
++	{ }
++};
++
++U_BOOT_DRIVER(pinctrl_bcm2712) = {
++	.name = "bcm2712_pinctrl",
++	.id = UCLASS_PINCTRL,
++	.of_match = of_match_ptr(bcm2712_pinctrl_match),
++	.of_to_plat = bcm2712_pinctrl_of_to_plat,
++	.priv_auto = sizeof(struct bcm2712_pinctrl_priv),
++	.ops = &bcm2712_pinctrl_ops,
++	.flags = DM_FLAG_PRE_RELOC,
++};
 diff --git a/drivers/reset/Kconfig b/drivers/reset/Kconfig
 index 2fd91d6299c..b7d2d4b18d5 100644
 --- a/drivers/reset/Kconfig
@@ -3587,6 +3835,53 @@ index 0c81e606622..0e0cc1979eb 100644
  	{ .compatible = "brcm,bcm2708-fb" },
  #if !IS_ENABLED(CONFIG_VIDEO_DT_SIMPLEFB)
  	{ .compatible = "simple-framebuffer" },
+diff --git a/dts/upstream/src/arm64/broadcom/bcm2712.dtsi b/dts/upstream/src/arm64/broadcom/bcm2712.dtsi
+index 205b87f557d..d5e136f5482 100644
+--- a/dts/upstream/src/arm64/broadcom/bcm2712.dtsi
++++ b/dts/upstream/src/arm64/broadcom/bcm2712.dtsi
+@@ -604,8 +604,8 @@
+ 				<0x43000000 0x04 0x00000000 0x1c 0x00000000 0x03 0x00000000>;
+ 
+ 			dma-ranges =
+-				/* 4MiB, 32-bit, non-prefetchable at PCIe 00_0000_0000 */
+-				<0x02000000 0x00 0x00000000 0x1f 0x00000000 0x00 0x00400000>,
++				/* ~4MiB, 32-bit, non-prefetchable at PCIe 00_0000_0000 */
++				<0x02000000 0x00 0x00000000 0x1f 0x00000000 0x00 0x00410000>,
+ 				/* 64GiB, 64-bit, prefetchable at PCIe 10_0000_0000 */
+ 				<0x43000000 0x10 0x00000000 0x00 0x00000000 0x10 0x00000000>,
+ 				/* 4KiB, 64-bit, non-prefetchable at PCIe ff_ffff_f000 MIP0 */
+diff --git a/dts/upstream/src/arm64/broadcom/rp1-common.dtsi b/dts/upstream/src/arm64/broadcom/rp1-common.dtsi
+index 5a815c37979..ccf9bb30011 100644
+--- a/dts/upstream/src/arm64/broadcom/rp1-common.dtsi
++++ b/dts/upstream/src/arm64/broadcom/rp1-common.dtsi
+@@ -6,7 +6,7 @@
+ 
+ pci_ep_bus: pci-ep-bus@1 {
+ 	compatible = "simple-bus";
+-	ranges = <0x00 0x40000000  0x01 0x00 0x00000000  0x00 0x00400000>;
++	ranges = <0x00 0x40000000  0x01 0x00 0x00000000  0x00 0x00410000>;
+ 	dma-ranges = <0x10 0x00000000  0x43000000 0x10 0x00000000  0x10 0x00000000>;
+ 	#address-cells = <2>;
+ 	#size-cells = <2>;
+diff --git a/dts/upstream/src/arm64/broadcom/rp1-nexus.dtsi b/dts/upstream/src/arm64/broadcom/rp1-nexus.dtsi
+index 0ef30d7f1c3..53174b72763 100644
+--- a/dts/upstream/src/arm64/broadcom/rp1-nexus.dtsi
++++ b/dts/upstream/src/arm64/broadcom/rp1-nexus.dtsi
+@@ -1,12 +1,12 @@
+ // SPDX-License-Identifier: (GPL-2.0 OR MIT)
+ 
+-rp1_nexus {
++rp1_nexus: rp1_nexus {
+ 	compatible = "pci1de4,1";
+ 	#address-cells = <3>;
+ 	#size-cells = <2>;
+ 	ranges = <0x01 0x00 0x00000000
+ 		  0x02000000 0x00 0x00000000
+-		  0x0 0x400000>;
++		  0x0 0x410000>;
+ 	interrupt-controller;
+ 	#interrupt-cells = <2>;
+ 
 diff --git a/include/broadcom/bcm_board_types.h b/include/broadcom/bcm_board_types.h
 new file mode 100644
 index 00000000000..3508b40fa9c
@@ -3625,68 +3920,6 @@ index 00000000000..3508b40fa9c
 +#define RPI_BOARD_TYPE_RPI5_FAMILY_MAX	BCM2712_CM5_LITE
 +
 +#endif /* _BCM_BOARD_TYPES_H_ */
-diff --git a/include/dt-bindings/clk/rp1.h b/include/dt-bindings/clk/rp1.h
-new file mode 100644
-index 00000000000..27cbb6e130d
---- /dev/null
-+++ b/include/dt-bindings/clk/rp1.h
-@@ -0,0 +1,56 @@
-+/* SPDX-License-Identifier: GPL-2.0 */
-+/*
-+ * Copyright (C) 2021 Raspberry Pi Ltd.
-+ */
-+
-+#define RP1_PLL_SYS_CORE		0
-+#define RP1_PLL_AUDIO_CORE		1
-+#define RP1_PLL_VIDEO_CORE		2
-+
-+#define RP1_PLL_SYS			3
-+#define RP1_PLL_AUDIO			4
-+#define RP1_PLL_VIDEO			5
-+
-+#define RP1_PLL_SYS_PRI_PH		6
-+#define RP1_PLL_SYS_SEC_PH		7
-+#define RP1_PLL_AUDIO_PRI_PH		8
-+
-+#define RP1_PLL_SYS_SEC			9
-+#define RP1_PLL_AUDIO_SEC		10
-+#define RP1_PLL_VIDEO_SEC		11
-+
-+#define RP1_CLK_SYS			12
-+#define RP1_CLK_SLOW_SYS		13
-+#define RP1_CLK_DMA			14
-+#define RP1_CLK_UART			15
-+#define RP1_CLK_ETH			16
-+#define RP1_CLK_PWM0			17
-+#define RP1_CLK_PWM1			18
-+#define RP1_CLK_AUDIO_IN		19
-+#define RP1_CLK_AUDIO_OUT		20
-+#define RP1_CLK_I2S			21
-+#define RP1_CLK_MIPI0_CFG		22
-+#define RP1_CLK_MIPI1_CFG		23
-+#define RP1_CLK_PCIE_AUX		24
-+#define RP1_CLK_USBH0_MICROFRAME	25
-+#define RP1_CLK_USBH1_MICROFRAME	26
-+#define RP1_CLK_USBH0_SUSPEND		27
-+#define RP1_CLK_USBH1_SUSPEND		28
-+#define RP1_CLK_ETH_TSU			29
-+#define RP1_CLK_ADC			30
-+#define RP1_CLK_SDIO_TIMER		31
-+#define RP1_CLK_SDIO_ALT_SRC		32
-+#define RP1_CLK_GP0			33
-+#define RP1_CLK_GP1			34
-+#define RP1_CLK_GP2			35
-+#define RP1_CLK_GP3			36
-+#define RP1_CLK_GP4			37
-+#define RP1_CLK_GP5			38
-+#define RP1_CLK_VEC			39
-+#define RP1_CLK_DPI			40
-+#define RP1_CLK_MIPI0_DPI		41
-+#define RP1_CLK_MIPI1_DPI		42
-+
-+/* Extra PLL output channels - RP1B0 only */
-+#define RP1_PLL_VIDEO_PRI_PH		43
-+#define RP1_PLL_AUDIO_TERN		44
 diff --git a/include/dt-bindings/mfd/rp1.h b/include/dt-bindings/mfd/rp1.h
 new file mode 100644
 index 00000000000..80bbfd61b27

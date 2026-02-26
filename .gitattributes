@@ -1,1 +1,6 @@
 *.generated.go linguist-generated
+*.sh            eol=lf
+*.txt           eol=crlf
+*.patch         binary
+.gitattributes  export-ignore
+.gitignore      export-ignore
