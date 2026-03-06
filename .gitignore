@@ -5,3 +5,4 @@ firmware
 optee_os
 BaseTools
 Build
+.github/docs

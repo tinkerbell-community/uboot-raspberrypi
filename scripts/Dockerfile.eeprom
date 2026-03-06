@@ -1,0 +1,169 @@
+FROM debian:bookworm-slim
+
+# Install dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    git \
+    binutils \
+    python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone rpi-eeprom tools (not available in Debian repos)
+RUN git clone --depth 1 https://github.com/raspberrypi/rpi-eeprom.git /opt/rpi-eeprom && \
+    ln -s /opt/rpi-eeprom/rpi-eeprom-config /usr/local/bin/rpi-eeprom-config && \
+    ln -s /opt/rpi-eeprom/rpi-eeprom-digest /usr/local/bin/rpi-eeprom-digest
+
+WORKDIR /workspace
+
+# Embed the EEPROM config script
+COPY <<'EOF' /create-eeprom-config.sh
+#!/usr/bin/env bash
+# Script to create a Raspberry Pi 5 EEPROM update with custom boot order and TFTP settings
+# Requires: curl, rpi-eeprom-config (from raspberrypi/rpi-eeprom)
+#
+# Boot order: MMC -> Network -> NVME -> USB
+# TFTP settings optimized for network boot
+
+set -euo pipefail
+
+WORK_DIR="/workspace/build/eeprom"
+OUTPUT_FILE="/workspace/pieeprom.upd"
+
+# Check if we're in Docker with /opt/rpi-eeprom available
+if [ -d "/opt/rpi-eeprom/firmware-2712/stable" ]; then
+    # Use EEPROM from cloned repo
+    EEPROM_BASE_PATH="/opt/rpi-eeprom/firmware-2712/stable"
+    # Find the latest pieeprom file
+    EEPROM_FILE=$(find "${EEPROM_BASE_PATH}" -maxdepth 1 -name 'pieeprom-*.bin' 2>/dev/null | sort -V | tail -1)
+    if [ -z "$EEPROM_FILE" ]; then
+        echo "ERROR: No pieeprom files found in ${EEPROM_BASE_PATH}"
+        exit 1
+    fi
+    EEPROM_VERSION=$(basename "$EEPROM_FILE" | sed 's/pieeprom-//; s/.bin//')
+    USE_LOCAL=true
+else
+    # Download from GitHub (for non-Docker runs)
+    # Pi 5 EEPROM version to use as base
+    EEPROM_VERSION="2026-01-09"
+    EEPROM_URL="https://archive.raspberrypi.org/debian/pool/main/r/rpi-eeprom/rpi-eeprom_28.13-1_all.deb"
+    USE_LOCAL=false
+fi
+
+# Boot mode values for Raspberry Pi 5:
+# 0x1 = SD card (eMMC/MMC)
+# 0x2 = Network boot
+# 0x4 = USB-MSD
+# 0x6 = NVME
+# 0x7 = HTTP boot
+# 0xf = STOP (halt boot sequence)
+#
+# BOOT_ORDER is read right-to-left (lowest nibble first)
+# Order requested: MMC(1) -> Network(2) -> NVME(6) -> USB(4) -> HTTP(7) -> STOP(f)
+BOOT_ORDER="0xf74621"
+
+echo "=== Raspberry Pi 5 EEPROM Configuration Builder ==="
+echo "Boot order: MMC -> Network -> NVME -> USB -> HTTP -> STOP"
+echo "EEPROM version: ${EEPROM_VERSION}"
+echo
+
+# Check for rpi-eeprom-config tool
+if ! command -v rpi-eeprom-config &> /dev/null; then
+    echo "ERROR: rpi-eeprom-config not found"
+    echo "Install from: https://github.com/raspberrypi/rpi-eeprom"
+    echo
+    echo "On macOS:"
+    echo "  git clone https://github.com/raspberrypi/rpi-eeprom.git"
+    echo "  cd rpi-eeprom"
+    echo "  sudo ln -s \$PWD/rpi-eeprom-config /usr/local/bin/"
+    echo
+    echo "On Debian/Ubuntu:"
+    echo "  sudo apt install rpi-eeprom"
+    exit 1
+fi
+
+# Create work directory
+mkdir -p "${WORK_DIR}"
+cd "${WORK_DIR}"
+
+# Get base EEPROM image
+if [ "$USE_LOCAL" = "true" ]; then
+    echo "Using base EEPROM image from local repository..."
+    echo "EEPROM file: ${EEPROM_FILE}"
+    echo "Version: ${EEPROM_VERSION}"
+    cp "${EEPROM_FILE}" "pieeprom-${EEPROM_VERSION}.bin"
+    echo "✓ Copied pieeprom-${EEPROM_VERSION}.bin"
+else
+    echo "Downloading base EEPROM image..."
+    if [ ! -f "pieeprom-${EEPROM_VERSION}.bin" ]; then
+        echo "ERROR: Non-Docker download not yet implemented"
+        echo "Please run this script using Docker: ./build-eeprom-docker.sh"
+        exit 1
+    else
+        echo "✓ Using cached pieeprom-${EEPROM_VERSION}.bin"
+    fi
+fi
+
+# Extract current configuration
+echo
+echo "Extracting EEPROM configuration..."
+rpi-eeprom-config "pieeprom-${EEPROM_VERSION}.bin" > bootconf.txt
+
+# Create new configuration with custom settings
+echo
+echo "Creating custom configuration..."
+cat <<INNEREOF | tee bootconf-custom.txt > /dev/null
+BOOT_ORDER=${BOOT_ORDER}
+NET_BOOT_MAX_RETRIES=0
+DHCP_TIMEOUT=5000
+TFTP_FILE_TIMEOUT=100000
+TFTP_PREFIX=2
+BOOT_UART=1
+POWER_OFF_ON_HALT=1
+USB_MSD_EXCLUDE_VID_PID=
+USB_MSD_DISCOVER_TIMEOUT=20000
+USB_MSD_PWR_OFF_TIME=0
+USB_MSD_STARTUP_DELAY=0
+
+# Network console (disabled for production)
+NETCONSOLE=0
+INNEREOF
+
+echo "Configuration created:"
+echo "----------------------------------------"
+cat bootconf-custom.txt
+echo "----------------------------------------"
+
+# Apply configuration to EEPROM image
+echo
+echo "Creating EEPROM update file..."
+rpi-eeprom-config --out "${OUTPUT_FILE}" --config bootconf-custom.txt "pieeprom-${EEPROM_VERSION}.bin"
+
+# Verify the output
+if [ -f "${OUTPUT_FILE}" ]; then
+    SIZE=$(stat -f%z "${OUTPUT_FILE}" 2>/dev/null || stat -c%s "${OUTPUT_FILE}" 2>/dev/null)
+    echo "✓ Created: ${OUTPUT_FILE} (${SIZE} bytes)"
+    echo
+    echo "Verifying configuration in output file..."
+    rpi-eeprom-config "${OUTPUT_FILE}" | grep -E "BOOT_ORDER|NET_BOOT|DHCP|TFTP"
+    echo
+    echo "=== Success ==="
+    echo "EEPROM update file: ${OUTPUT_FILE}"
+    echo
+    echo "To apply on Raspberry Pi 5:"
+    echo "  1. Copy pieeprom.upd to the boot partition"
+    echo "  2. Reboot - the bootloader will auto-update"
+    echo "  OR:"
+    echo "  sudo rpi-eeprom-update -d -f ${OUTPUT_FILE}"
+    echo
+else
+    echo "ERROR: Failed to create ${OUTPUT_FILE}"
+    exit 1
+fi
+EOF
+
+RUN chmod +x /create-eeprom-config.sh
+
+# Run script by default
+CMD ["/create-eeprom-config.sh"]

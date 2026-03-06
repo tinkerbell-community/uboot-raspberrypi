@@ -402,10 +402,10 @@ index 9ac9d6768ca..f879df109ac 100644
 +boot_targets=mmc nvme usb pxe dhcp
 diff --git a/configs/rpi_5_defconfig b/configs/rpi_5_defconfig
 new file mode 100644
-index 00000000000..0720ec7fc8f
+index 00000000000..c44197f246b
 --- /dev/null
 +++ b/configs/rpi_5_defconfig
-@@ -0,0 +1,111 @@
+@@ -0,0 +1,105 @@
 +CONFIG_ARM=y
 +CONFIG_POSITION_INDEPENDENT=y
 +CONFIG_ARCH_BCM283X=y
@@ -507,18 +507,12 @@ index 00000000000..0720ec7fc8f
 +CONFIG_BOOTMETH_GLOBAL=n
 +CONFIG_BOOTMETH_SCRIPT=n
 +CONFIG_PXE_UTILS=n
-+# Logging
-+CONFIG_LOG=y
-+CONFIG_LOG_MAX_LEVEL=7
-+CONFIG_LOG_DEFAULT_LEVEL=7
-+CONFIG_LOG_CONSOLE=y
-+CONFIG_LOGF_FILE=y
-+CONFIG_LOGF_LINE=y
-+CONFIG_LOGF_FUNC=y
 +CONFIG_DMA_ADDR_T_64BIT=y
 +CONFIG_PCI_INIT_R=y
++# Disable EFI bootmanager (reserves memory on 0x00080000 -> prevents continuing after being successful)
++CONFIG_CMD_BOOTEFI_BOOTMGR=n
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
-index 69e8e72c5d7..ebd7f3c9eeb 100644
+index 69e8e72c5d7..91fe59cc97d 100644
 --- a/configs/rpi_arm64_defconfig
 +++ b/configs/rpi_arm64_defconfig
 @@ -9,17 +9,19 @@ CONFIG_OF_LIBFDT_OVERLAY=y
@@ -542,7 +536,7 @@ index 69e8e72c5d7..ebd7f3c9eeb 100644
  CONFIG_SYS_PROMPT="U-Boot> "
  CONFIG_CMD_NVEDIT_EFI=y
  CONFIG_CMD_GPIO=y
-@@ -65,3 +67,37 @@ CONFIG_VIDEO_BCM2835=y
+@@ -65,3 +67,29 @@ CONFIG_VIDEO_BCM2835=y
  CONFIG_CONSOLE_SCROLL_LINES=10
  CONFIG_PHYS_TO_BUS=y
  # CONFIG_HEXDUMP is not set
@@ -572,15 +566,6 @@ index 69e8e72c5d7..ebd7f3c9eeb 100644
 +CONFIG_PXE_UTILS=n
 +# Disable EFI bootmanager (reserves memory on 0x00080000 -> prevents continuing after being successful)
 +CONFIG_CMD_BOOTEFI_BOOTMGR=n
-+# Logging
-+CONFIG_LOG=y
-+CONFIG_LOG_MAX_LEVEL=7
-+CONFIG_LOG_DEFAULT_LEVEL=7
-+CONFIG_LOG_CONSOLE=y
-+CONFIG_LOGF_FILE=y
-+CONFIG_LOGF_LINE=y
-+CONFIG_LOGF_FUNC=y
-\ No newline at end of file
 diff --git a/drivers/clk/Kconfig b/drivers/clk/Kconfig
 index ae783254008..a7fbaacf018 100644
 --- a/drivers/clk/Kconfig
