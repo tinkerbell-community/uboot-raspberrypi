@@ -217,7 +217,7 @@ jobs:
 
           :interfaces-loop-done
           echo Booting from net\${idx}...
-          set retry-max:int32 10
+          set retry-max:int32 2
           set count:int32 1
           :retry-loop1
           echo trying dhcp ( attempt \${count}/\${retry-max} )
@@ -226,7 +226,7 @@ jobs:
           autoboot net\${idx} || exit 1
 
           :autoboot
-          set retry-max:int32 10
+          set retry-max:int32 2
           set count:int32 1
           :retry-loop2
           echo trying dhcp ( attempt \${count}/\${retry-max} )
