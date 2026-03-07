@@ -39,7 +39,6 @@ dtoverlay=disable-wifi
 dtoverlay=vc4-kms-v3d-pi4,noaudio
 
 [pi5]
-kernel=u-boot-rpi5.bin
 enable_uart=0
 framebuffer_depth=16
 

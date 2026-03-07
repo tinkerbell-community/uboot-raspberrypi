@@ -86,8 +86,6 @@ jobs:
         config:
           - name: rpi_arm64
             path: u-boot.bin
-          - name: rpi_5
-            path: u-boot-rpi5.bin
     permissions:
       contents: read
 
@@ -116,8 +114,8 @@ jobs:
       - name: Configure U-Boot for Raspberry Pi 4 ARM64
         working-directory: u-boot
         run: |
-          patch -p1 < ${{ github.workspace }}/src/patches/${{ matrix.config.name }}_defconfig.patch
-          make ${{ matrix.config.name }}_defconfig
+          patch -p1 < ${{ github.workspace }}/src/patches/rpi_arm64_defconfig.patch
+          make rpi_arm64_defconfig
 
           echo "CONFIG_SERVERIP_FROM_PROXYDHCP=y" >> .config
           echo "CONFIG_BOOTP_SEND_HOSTNAME=y" >> .config
@@ -130,18 +128,11 @@ jobs:
           make -j $(nproc) HOSTLDLIBS_mkimage="-lssl -lcrypto"
           ls -la u-boot.bin
 
-      - name: Rename U-Boot
-        working-directory: u-boot
-        if: ${{ matrix.config.path != 'u-boot.bin' }}
-        run: |
-          mv u-boot.bin ${{ matrix.config.path }}
-          ls -la ${{ matrix.config.path }}
-
       - name: Upload U-Boot binary
         uses: actions/upload-artifact@v4
         with:
-          name: uboot-binary-${{ matrix.config.name }}
-          path: u-boot/${{ matrix.config.path }}
+          name: uboot-binary
+          path: u-boot/u-boot.bin
           retention-days: 1
           if-no-files-found: error
 
