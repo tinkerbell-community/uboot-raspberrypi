@@ -96,7 +96,7 @@ index d9303e8c281..861d0d9a1b5 100644
  	depends on ARCH_BCM283X
  choice
 diff --git a/arch/arm/mach-bcm283x/include/mach/acpi/bcm2711.h b/arch/arm/mach-bcm283x/include/mach/acpi/bcm2711.h
-index a86875b1833..cf354e33b8e 100644
+index a86875b1833..d49c9f59fb2 100644
 --- a/arch/arm/mach-bcm283x/include/mach/acpi/bcm2711.h
 +++ b/arch/arm/mach-bcm283x/include/mach/acpi/bcm2711.h
 @@ -45,24 +45,51 @@
@@ -118,7 +118,7 @@ index a86875b1833..cf354e33b8e 100644
  #define  MISC_CTRL_MAX_BURST_SIZE_MASK            0x300000
 -#define  MISC_CTRL_MAX_BURST_SIZE_128             0x0
 +#define  MISC_CTRL_MAX_BURST_SIZE_128(pcie)	\
-+	((pcie)->cfg->offsets[RGR1_SW_INIT_1])
++	((pcie)->cfg->offsets[MAX_BURST_SIZE_128])
  #define  MISC_CTRL_SCB0_SIZE_MASK                 0xf8000000
 +#define  MISC_CTRL_PCIE_RCB_MPS_MODE_MASK         0x400
  
@@ -2325,10 +2325,17 @@ index c370f8c6400..6518f299a69 100644
  }
  
 diff --git a/drivers/pci/pcie_brcmstb.c b/drivers/pci/pcie_brcmstb.c
-index f089c48f028..ce39bcf794e 100644
+index f089c48f028..a303e6119c1 100644
 --- a/drivers/pci/pcie_brcmstb.c
 +++ b/drivers/pci/pcie_brcmstb.c
-@@ -21,9 +21,12 @@
+@@ -15,15 +15,19 @@
+ #include <asm/arch/acpi/bcm2711.h>
+ #include <errno.h>
+ #include <dm.h>
++#include <dm/device.h>
+ #include <dm/ofnode.h>
+ #include <pci.h>
+ #include <asm/io.h>
  #include <linux/bitfield.h>
  #include <linux/log2.h>
  #include <linux/iopoll.h>
@@ -2341,7 +2348,7 @@ index f089c48f028..ce39bcf794e 100644
  
  /* MDIO registers */
  #define MDIO_PORT0					0x0
-@@ -49,18 +52,86 @@
+@@ -49,18 +53,86 @@
  #define SSC_STATUS_PLL_LOCK_MASK			0x800
  #define SSC_STATUS_PLL_LOCK_SHIFT			11
  
@@ -2428,7 +2435,7 @@ index f089c48f028..ce39bcf794e 100644
  };
  
  /**
-@@ -104,6 +175,76 @@ static bool brcm_pcie_rc_mode(struct brcm_pcie *pcie)
+@@ -104,6 +176,76 @@ static bool brcm_pcie_rc_mode(struct brcm_pcie *pcie)
  	return (val & STATUS_PCIE_PORT_MASK) >> STATUS_PCIE_PORT_SHIFT;
  }
  
@@ -2505,7 +2512,7 @@ index f089c48f028..ce39bcf794e 100644
  /**
   * brcm_pcie_link_up() - Check whether the PCIe link is up
   * @pcie: Pointer to the PCIe controller state
-@@ -134,6 +275,7 @@ static int brcm_pcie_config_address(const struct udevice *dev, pci_dev_t bdf,
+@@ -134,6 +276,7 @@ static int brcm_pcie_config_address(const struct udevice *dev, pci_dev_t bdf,
  	 * Busses 0 (host PCIe bridge) and 1 (its immediate child)
  	 * are limited to a single device each
  	 */
@@ -2513,7 +2520,7 @@ index f089c48f028..ce39bcf794e 100644
  	if (pci_bus < 2 && pci_dev > 0)
  		return -EINVAL;
  
-@@ -331,7 +473,7 @@ static void brcm_pcie_set_outbound_win(struct brcm_pcie *pcie,
+@@ -331,7 +474,7 @@ static void brcm_pcie_set_outbound_win(struct brcm_pcie *pcie,
  	writel(tmp, base + PCIE_MEM_WIN0_BASE_LIMIT(win));
  
  	/* Write the cpu & limit addr upper bits */
@@ -2522,7 +2529,7 @@ index f089c48f028..ce39bcf794e 100644
  	phys_addr_mb_high = phys_addr_mb >> high_addr_shift;
  	tmp = readl(base + PCIE_MEM_WIN0_BASE_HI(win));
  	u32p_replace_bits(&tmp, phys_addr_mb_high,
-@@ -345,28 +487,389 @@ static void brcm_pcie_set_outbound_win(struct brcm_pcie *pcie,
+@@ -345,28 +488,389 @@ static void brcm_pcie_set_outbound_win(struct brcm_pcie *pcie,
  	writel(tmp, base + PCIE_MEM_WIN0_LIMIT_HI(win));
  }
  
@@ -2917,7 +2924,7 @@ index f089c48f028..ce39bcf794e 100644
  	/*
  	 * The delay is a safety precaution to preclude the reset signal
  	 * from looking like a glitch.
-@@ -374,9 +877,9 @@ static int brcm_pcie_probe(struct udevice *dev)
+@@ -374,9 +878,9 @@ static int brcm_pcie_probe(struct udevice *dev)
  	udelay(100);
  
  	/* Take the bridge out of reset */
@@ -2929,7 +2936,7 @@ index f089c48f028..ce39bcf794e 100644
  		     PCIE_HARD_DEBUG_SERDES_IDDQ_MASK);
  
  	/* Wait for SerDes to be stable */
-@@ -387,34 +890,9 @@ static int brcm_pcie_probe(struct udevice *dev)
+@@ -387,34 +891,9 @@ static int brcm_pcie_probe(struct udevice *dev)
  			MISC_CTRL_MAX_BURST_SIZE_MASK,
  			MISC_CTRL_SCB_ACCESS_EN_MASK |
  			MISC_CTRL_CFG_READ_UR_MODE_MASK |
@@ -2967,7 +2974,7 @@ index f089c48f028..ce39bcf794e 100644
  
  	/* Mask all interrupts since we are not handling any yet */
  	writel(0xffffffff, base + PCIE_MSI_INTR2_MASK_SET);
-@@ -425,32 +903,31 @@ static int brcm_pcie_probe(struct udevice *dev)
+@@ -425,32 +904,31 @@ static int brcm_pcie_probe(struct udevice *dev)
  	if (pcie->gen)
  		brcm_pcie_set_gen(pcie, pcie->gen);
  
@@ -3020,7 +3027,7 @@ index f089c48f028..ce39bcf794e 100644
  	for (i = 0; i < hose->region_count; i++) {
  		struct pci_region *reg = &hose->regions[i];
  
-@@ -473,6 +950,49 @@ static int brcm_pcie_probe(struct udevice *dev)
+@@ -473,6 +951,49 @@ static int brcm_pcie_probe(struct udevice *dev)
  	clrsetbits_le32(base + PCIE_RC_CFG_PRIV1_ID_VAL3,
  			PCIE_RC_CFG_PRIV1_ID_VAL3_CLASS_CODE_MASK, 0x060400);
  
@@ -3070,7 +3077,7 @@ index f089c48f028..ce39bcf794e 100644
  	if (pcie->ssc) {
  		ret = brcm_pcie_set_ssc(pcie->base);
  		if (!ret)
-@@ -514,14 +1034,24 @@ static int brcm_pcie_remove(struct udevice *dev)
+@@ -514,14 +1035,24 @@ static int brcm_pcie_remove(struct udevice *dev)
  	void __iomem *base = pcie->base;
  
  	/* Assert fundamental reset */
@@ -3098,7 +3105,7 @@ index f089c48f028..ce39bcf794e 100644
  
  	return 0;
  }
-@@ -546,6 +1076,11 @@ static int brcm_pcie_of_to_plat(struct udevice *dev)
+@@ -546,6 +1077,11 @@ static int brcm_pcie_of_to_plat(struct udevice *dev)
  	else
  		pcie->gen = max_link_speed;
  
@@ -3110,7 +3117,7 @@ index f089c48f028..ce39bcf794e 100644
  	return 0;
  }
  
-@@ -554,8 +1089,40 @@ static const struct dm_pci_ops brcm_pcie_ops = {
+@@ -554,8 +1090,40 @@ static const struct dm_pci_ops brcm_pcie_ops = {
  	.write_config	= brcm_pcie_write_config,
  };
  
