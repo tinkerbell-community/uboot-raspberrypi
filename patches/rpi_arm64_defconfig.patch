@@ -2325,7 +2325,7 @@ index c370f8c6400..6518f299a69 100644
  }
  
 diff --git a/drivers/pci/pcie_brcmstb.c b/drivers/pci/pcie_brcmstb.c
-index f089c48f028..a303e6119c1 100644
+index f089c48f028..d9693c6fe7b 100644
 --- a/drivers/pci/pcie_brcmstb.c
 +++ b/drivers/pci/pcie_brcmstb.c
 @@ -15,15 +15,19 @@
@@ -2998,7 +2998,7 @@ index f089c48f028..a303e6119c1 100644
 +	num_inbound_wins = pcie->cfg->get_inbound_wins(pcie, inbound_wins);
 +	if (num_inbound_wins < 0)
 +		return num_inbound_wins;
-+	brcm_set_inbound_win_registers(pcie, inbound_wins, num_inbound_wins+1);
++	brcm_set_inbound_win_registers(pcie, inbound_wins, num_inbound_wins);
  
 -	if (!brcm_pcie_link_up(pcie)) {
 -		printf("PCIe BRCM: link down\n");
