@@ -122,6 +122,10 @@ jobs:
           echo "CONFIG_BOOTP_DNS2=y" >> .config
           echo "CONFIG_BOOTP_NTPSERVER=y" >> .config
 
+          echo "CONFIG_OPTEE=y" >> .config
+          echo "CONFIG_CMD_OPTEE_RPMB=y" >> .config
+          echo "CONFIG_EFI_MM_COMM_TEE=y" >> .config
+
       - name: Configure Expo Menu
         working-directory: u-boot
         run: |
@@ -129,7 +133,7 @@ jobs:
           echo "CONFIG_BOOTSTD_BOOTCOMMAND=y" >> .config
           echo "CONFIG_EXPO=y" >> .config
           echo "CONFIG_BOOTSTD_MENU=y" >> .config
-          echo "CONFIG_CEDIT=y" >> .config
+          # echo "CONFIG_CEDIT=y" >> .config
           echo "CONFIG_CMD_BOOTMENU=y" >> .config
           echo "CONFIG_CMD_BOOTFLOW_FULL=y" >> .config
           echo "CONFIG_AUTOBOOT_MENU_SHOW=y" >> .config
@@ -385,8 +389,125 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  build-edk2-mm:
+    needs: determine-version
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+
+    steps:
+      - name: Cache and install build dependencies
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: build-essential gcc-aarch64-linux-gnu git uuid-dev iasl python3-pyelftools
+          version: 1.0
+
+      - name: Checkout EDK2
+        uses: actions/checkout@v4
+        with:
+          repository: tianocore/edk2
+          path: edk2
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Checkout EDK2 Platforms
+        uses: actions/checkout@v4
+        with:
+          repository: tianocore/edk2-platforms
+          path: edk2-platforms
+          fetch-depth: 1
+
+      - name: Build EDK2 StandaloneMM RPMB
+        run: |
+          export WORKSPACE=$(pwd)
+          export PACKAGES_PATH=$WORKSPACE/edk2:$WORKSPACE/edk2-platforms
+          export ACTIVE_PLATFORM="Platform/StandaloneMm/PlatformStandaloneMmPkg/PlatformStandaloneMmRpmb.dsc"
+          export GCC5_AARCH64_PREFIX=aarch64-linux-gnu-
+
+          source edk2/edksetup.sh
+          make -C edk2/BaseTools -j $(nproc)
+          build -p $ACTIVE_PLATFORM -b RELEASE -a AARCH64 -t GCC5 -n $(nproc)
+
+          # Verify output
+          ls -lah Build/MmStandaloneRpmb/RELEASE_GCC5/FV/BL32_AP_MM.fd
+
+      - name: Upload EDK2 StandaloneMM binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: edk2-mm-binary
+          path: Build/MmStandaloneRpmb/RELEASE_GCC5/FV/BL32_AP_MM.fd
+          retention-days: 1
+          if-no-files-found: error
+
+  build-optee:
+    needs: [determine-version, build-edk2-mm]
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      matrix:
+        platform:
+          - name: rpi3
+            artifact_suffix: rpi4
+          - name: rpi5
+            artifact_suffix: rpi5
+    permissions:
+      contents: read
+
+    steps:
+      - name: Cache and install build dependencies
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: build-essential git python3-cryptography gcc-arm-linux-gnueabihf
+          version: 1.0
+
+      - name: Download EDK2 StandaloneMM binary
+        uses: actions/download-artifact@v4
+        with:
+          name: edk2-mm-binary
+          path: edk2-mm
+
+      - name: Checkout OP-TEE OS
+        uses: actions/checkout@v4
+        with:
+          repository: OP-TEE/optee_os
+          path: optee_os
+          fetch-depth: 1
+
+      - name: Build OP-TEE OS with StandaloneMM
+        working-directory: optee_os
+        run: |
+          # Symlink the EDK2 StandaloneMM binary
+          ln -s ../edk2-mm/BL32_AP_MM.fd BL32_AP_MM.fd
+
+          export ARCH=arm
+          CROSS_COMPILE32=arm-linux-gnueabihf- make -j$(nproc) \
+            CFG_ARM64_core=y \
+            PLATFORM=${{ matrix.platform.name }} \
+            CFG_STMM_PATH=BL32_AP_MM.fd \
+            CFG_RPMB_FS=y \
+            CFG_RPMB_FS_DEV_ID=0 \
+            CFG_CORE_HEAP_SIZE=524288 \
+            CFG_RPMB_WRITE_KEY=y \
+            CFG_CORE_DYN_SHM=y \
+            CFG_RPMB_TESTKEY=y \
+            CFG_REE_FS=n \
+            CFG_CORE_ARM64_PA_BITS=48 \
+            CFG_TEE_CORE_LOG_LEVEL=1 \
+            CFG_TEE_TA_LOG_LEVEL=1 \
+            CFG_SCTLR_ALIGNMENT_CHECK=n
+
+          # Verify output
+          ls -lah out/arm-plat-${{ matrix.platform.name }}/core/tee-pager_v2.bin
+
+      - name: Upload OP-TEE binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: optee-binary-${{ matrix.platform.artifact_suffix }}
+          path: optee_os/out/arm-plat-${{ matrix.platform.name }}/core/tee-pager_v2.bin
+          retention-days: 1
+          if-no-files-found: error
+
   build-image:
-    needs: [determine-version, build-uboot, checkout-firmware, build-ipxe-arm64, prepare-config, build-kernel-dtbs]
+    needs: [determine-version, build-uboot, checkout-firmware, build-ipxe-arm64, prepare-config, build-kernel-dtbs, build-optee]
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: write
@@ -436,6 +557,13 @@ jobs:
           # Copy iPXE binary
           mkdir -p build/EFI/BOOT
           cp artifacts/ipxe-arm64-binary/snp.efi build/EFI/BOOT/BOOTAA64.EFI
+
+          # Copy OP-TEE binaries
+          echo "Copying OP-TEE binaries..."
+          cp artifacts/optee-binary-rpi4/tee-pager_v2.bin build/tee-rpi4.bin
+          cp artifacts/optee-binary-rpi5/tee-pager_v2.bin build/tee-rpi5.bin
+          echo "OP-TEE binaries:"
+          ls -lah build/tee-*.bin
 
           echo "Build directory contents:"
           ls -lah build/
@@ -519,8 +647,9 @@ jobs:
           - **Release Version**: \`${RELEASE_VERSION}\`
           - **Raspberry Pi Firmware**: \`${{ env.RPI_FIRMWARE_VERSION }}\`
           - **Raspberry Pi Kernel DTBs**: \`${{ env.RPI_KERNEL_VERSION }}\`
+          - **OP-TEE**: Built with EDK2 StandaloneMM RPMB for secure UEFI variables
           - **Architecture**: ARM64 (aarch64)
-          - **Target Device**: Raspberry Pi 4 / Raspberry Pi 400
+          - **Target Device**: Raspberry Pi 4 / Raspberry Pi 5 / Raspberry Pi 400
 
           ## Features
 
@@ -530,6 +659,7 @@ jobs:
           - USB storage boot
           - NVMe boot support (with patches)
           - iPXE network boot (snp.efi included)
+          - OP-TEE secure world for UEFI variable storage (RPMB-backed)
           - Custom boot command for network-first boot
 
           ## Installation
