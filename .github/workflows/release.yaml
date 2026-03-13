@@ -417,6 +417,18 @@ jobs:
           path: edk2-platforms
           fetch-depth: 1
 
+      - name: Ensure GCC5 toolchain
+        run: |
+          if ! command -v aarch64-linux-gnu-gcc &> /dev/null; then
+            echo "Cross-compiler prefix not found, creating symlinks from native gcc"
+            for tool in gcc g++ ar ld objcopy objdump ranlib nm strip; do
+              if command -v $tool &> /dev/null; then
+                sudo ln -sf $(which $tool) /usr/local/bin/aarch64-linux-gnu-$tool
+              fi
+            done
+          fi
+          aarch64-linux-gnu-gcc --version
+
       - name: Build EDK2 StandaloneMM RPMB
         run: |
           export WORKSPACE=$(pwd)
@@ -475,14 +487,23 @@ jobs:
       - name: Build OP-TEE OS with StandaloneMM
         working-directory: optee_os
         run: |
-          # Symlink the EDK2 StandaloneMM binary
-          ln -s ../edk2-mm/BL32_AP_MM.fd BL32_AP_MM.fd
+          # Use absolute path for StandaloneMM binary
+          STMM_PATH=$(realpath ../edk2-mm/BL32_AP_MM.fd)
 
-          export ARCH=arm
-          CROSS_COMPILE32=arm-linux-gnueabihf- make -j$(nproc) \
+          # Build OP-TEE as standalone EL3 secure monitor (no TF-A required).
+          # CFG_WITH_ARM_TRUSTED_FW=n: OP-TEE handles EL3 secure monitor duties itself.
+          # CFG_NS_ENTRY_ADDR: where GPU firmware loads the kernel (U-Boot) = 0x80000.
+          # On boot: GPU loads armstub (OP-TEE) to 0x0, kernel (U-Boot) to 0x80000.
+          # OP-TEE starts at EL3, initializes secure world, then drops to NS-EL2
+          # and jumps to U-Boot at 0x80000.
+          make -j$(nproc) \
+            ARCH=arm \
             CFG_ARM64_core=y \
+            CROSS_COMPILE=arm-linux-gnueabihf- \
             PLATFORM=${{ matrix.platform.name }} \
-            CFG_STMM_PATH=BL32_AP_MM.fd \
+            CFG_WITH_ARM_TRUSTED_FW=n \
+            CFG_NS_ENTRY_ADDR=0x80000 \
+            CFG_STMM_PATH=${STMM_PATH} \
             CFG_RPMB_FS=y \
             CFG_RPMB_FS_DEV_ID=0 \
             CFG_CORE_HEAP_SIZE=524288 \
@@ -495,14 +516,17 @@ jobs:
             CFG_TEE_TA_LOG_LEVEL=1 \
             CFG_SCTLR_ALIGNMENT_CHECK=n
 
-          # Verify output
+          # Verify outputs
+          echo "OP-TEE build outputs:"
+          ls -lah out/arm-plat-${{ matrix.platform.name }}/core/tee.bin
           ls -lah out/arm-plat-${{ matrix.platform.name }}/core/tee-pager_v2.bin
+          ls -lah out/arm-plat-${{ matrix.platform.name }}/core/tee-header_v2.bin
 
       - name: Upload OP-TEE binary
         uses: actions/upload-artifact@v4
         with:
           name: optee-binary-${{ matrix.platform.artifact_suffix }}
-          path: optee_os/out/arm-plat-${{ matrix.platform.name }}/core/tee-pager_v2.bin
+          path: optee_os/out/arm-plat-${{ matrix.platform.name }}/core/tee.bin
           retention-days: 1
           if-no-files-found: error
 
@@ -558,11 +582,12 @@ jobs:
           mkdir -p build/EFI/BOOT
           cp artifacts/ipxe-arm64-binary/snp.efi build/EFI/BOOT/BOOTAA64.EFI
 
-          # Copy OP-TEE binaries
-          echo "Copying OP-TEE binaries..."
-          cp artifacts/optee-binary-rpi4/tee-pager_v2.bin build/tee-rpi4.bin
-          cp artifacts/optee-binary-rpi5/tee-pager_v2.bin build/tee-rpi5.bin
-          echo "OP-TEE binaries:"
+          # Copy OP-TEE armstub binaries
+          # OP-TEE acts as EL3 secure monitor (armstub) - loaded by GPU firmware before U-Boot
+          echo "Copying OP-TEE armstub binaries..."
+          cp artifacts/optee-binary-rpi4/tee.bin build/tee-rpi4.bin
+          cp artifacts/optee-binary-rpi5/tee.bin build/tee-rpi5.bin
+          echo "OP-TEE armstub binaries:"
           ls -lah build/tee-*.bin
 
           echo "Build directory contents:"
@@ -647,7 +672,7 @@ jobs:
           - **Release Version**: \`${RELEASE_VERSION}\`
           - **Raspberry Pi Firmware**: \`${{ env.RPI_FIRMWARE_VERSION }}\`
           - **Raspberry Pi Kernel DTBs**: \`${{ env.RPI_KERNEL_VERSION }}\`
-          - **OP-TEE**: Built with EDK2 StandaloneMM RPMB for secure UEFI variables
+          - **OP-TEE**: EL3 secure monitor with EDK2 StandaloneMM RPMB for secure UEFI variables
           - **Architecture**: ARM64 (aarch64)
           - **Target Device**: Raspberry Pi 4 / Raspberry Pi 5 / Raspberry Pi 400
 
