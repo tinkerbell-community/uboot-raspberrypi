@@ -20,7 +20,7 @@ on:
       - 'v*'
 
 env:
-  UBOOT_VERSION: ${{ inputs.uboot_version || 'v2026.04-rc1' }}
+  UBOOT_VERSION: ${{ inputs.uboot_version || 'v2026.04-rc4' }}
   UBOOT_DIR: ${{ github.workspace }}/u-boot
   RPI_FIRMWARE_VERSION: ${{ inputs.rpi_firmware_version || 'next' }}
   RPI_KERNEL_VERSION: ${{ inputs.rpi_kernel_version || 'stable_20250428' }}
@@ -121,6 +121,18 @@ jobs:
           echo "CONFIG_BOOTP_SEND_HOSTNAME=y" >> .config
           echo "CONFIG_BOOTP_DNS2=y" >> .config
           echo "CONFIG_BOOTP_NTPSERVER=y" >> .config
+
+      - name: Configure Expo Menu
+        working-directory: u-boot
+        run: |
+          echo "CONFIG_BOOTSTD_FULL=y" >> .config
+          echo "CONFIG_BOOTSTD_BOOTCOMMAND=y" >> .config
+          echo "CONFIG_EXPO=y" >> .config
+          echo "CONFIG_BOOTSTD_MENU=y" >> .config
+          echo "CONFIG_CEDIT=y" >> .config
+          echo "CONFIG_CMD_BOOTMENU=y" >> .config
+          echo "CONFIG_CMD_BOOTFLOW_FULL=y" >> .config
+          echo "CONFIG_AUTOBOOT_MENU_SHOW=y" >> .config
 
       - name: Build U-Boot
         working-directory: u-boot

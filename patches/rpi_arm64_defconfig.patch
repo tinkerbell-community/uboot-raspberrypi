@@ -1,14 +1,15 @@
 diff --git a/arch/arm/dts/Makefile b/arch/arm/dts/Makefile
-index 3cd762977cb..23878233480 100644
+index 82ad3035308..5d97c94cbec 100644
 --- a/arch/arm/dts/Makefile
 +++ b/arch/arm/dts/Makefile
-@@ -1026,7 +1026,8 @@ dtb-$(CONFIG_ARCH_BCM283X) += \
+@@ -1025,7 +1025,9 @@ dtb-$(CONFIG_ARCH_BCM283X) += \
  	bcm2837-rpi-3-b.dtb \
  	bcm2837-rpi-3-b-plus.dtb \
  	bcm2837-rpi-cm3-io3.dtb \
 -	bcm2711-rpi-4-b.dtb
 +	bcm2711-rpi-4-b.dtb \
-+	bcm2712-rpi-5-b.dtb
++	bcm2712-rpi-5-b.dtb \
++	bcm2712d0-rpi-5-b.dtb
  
  dtb-$(CONFIG_TARGET_BCMNS) += ns-board.dtb
  
@@ -240,7 +241,7 @@ index 7a1de22e0ae..97a6b9aa5b3 100644
  		.phys = 0x107c000000UL,
  		.size = 0x0004000000UL,
 diff --git a/board/raspberrypi/rpi/rpi.c b/board/raspberrypi/rpi/rpi.c
-index f9b643555dd..ca09924a358 100644
+index 7f69e5b6163..975bcfd4af8 100644
 --- a/board/raspberrypi/rpi/rpi.c
 +++ b/board/raspberrypi/rpi/rpi.c
 @@ -20,12 +20,15 @@
@@ -259,7 +260,7 @@ index f9b643555dd..ca09924a358 100644
  #include <acpi/acpi_table.h>
  #include <acpi/acpigen.h>
  #include <dm/lists.h>
-@@ -532,6 +535,10 @@ static void get_board_revision(void)
+@@ -546,6 +549,10 @@ static void get_board_revision(void)
  		model = &models[rev_type];
  	}
  
@@ -270,7 +271,7 @@ index f9b643555dd..ca09924a358 100644
  	printf("RPI %s (0x%x)\n", model->name, revision);
  }
  
-@@ -644,11 +651,62 @@ int ft_board_setup(void *blob, struct bd_info *bd)
+@@ -661,11 +668,62 @@ int ft_board_setup(void *blob, struct bd_info *bd)
  	return 0;
  }
  
@@ -335,7 +336,7 @@ index f9b643555dd..ca09924a358 100644
  }
  
  static bool is_rpi3(void)
-@@ -664,30 +722,33 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
+@@ -681,30 +739,33 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
  	struct {
  		const char *fdt_compatible;
  		const char *acpi_scope;
@@ -384,7 +385,7 @@ index f9b643555dd..ca09924a358 100644
  		    (is_rpi3() && !map[i].on_rpi3)) {
  			enabled = false;
  		} else {
-@@ -726,7 +787,7 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
+@@ -743,7 +804,7 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
  	acpigen_write_name_integer(ctx, "_STA", enabled ? 0xf : 0);
  	acpigen_pop_len(ctx);
  
@@ -456,7 +457,7 @@ index 69e8e72c5d7..1851fe09627 100644
 +# Disable EFI bootmanager (reserves memory on 0x00080000 -> prevents continuing after being successful)
 +CONFIG_CMD_BOOTEFI_BOOTMGR=n
 diff --git a/drivers/clk/Kconfig b/drivers/clk/Kconfig
-index ae783254008..a7fbaacf018 100644
+index c88931c8ec4..4451a657386 100644
 --- a/drivers/clk/Kconfig
 +++ b/drivers/clk/Kconfig
 @@ -67,6 +67,13 @@ config CLK_BOSTON
@@ -1442,7 +1443,7 @@ index 00000000000..e6ebf383a9a
 +U_BOOT_PCI_DEVICE(rp1_driver, dev_id_table);
 \ No newline at end of file
 diff --git a/drivers/net/Kconfig b/drivers/net/Kconfig
-index 4fda1b0c28c..75172930be4 100644
+index fce8004e134..6c39c96aaeb 100644
 --- a/drivers/net/Kconfig
 +++ b/drivers/net/Kconfig
 @@ -569,6 +569,10 @@ config MACB
@@ -2171,7 +2172,7 @@ index b06cb5c6d51..ad1a260f9ab 100644
  		goto free_id;
  	}
 diff --git a/drivers/pci/pci-uclass.c b/drivers/pci/pci-uclass.c
-index c370f8c6400..6518f299a69 100644
+index 83b76d01f24..30165954813 100644
 --- a/drivers/pci/pci-uclass.c
 +++ b/drivers/pci/pci-uclass.c
 @@ -783,6 +783,83 @@ static int pci_find_and_bind_driver(struct udevice *parent,
@@ -2258,7 +2259,7 @@ index c370f8c6400..6518f299a69 100644
  	if (ofnode_valid(node) && !ofnode_is_enabled(node)) {
  		debug("%s: Ignoring disabled device\n", __func__);
  		return log_msg_ret("dis", -EPERM);
-@@ -1200,6 +1277,7 @@ static int pci_uclass_post_probe(struct udevice *bus)
+@@ -1235,6 +1312,7 @@ static int pci_uclass_post_probe(struct udevice *bus)
  static int pci_uclass_child_post_bind(struct udevice *dev)
  {
  	struct pci_child_plat *pplat;
@@ -2266,7 +2267,7 @@ index c370f8c6400..6518f299a69 100644
  
  	if (!dev_has_ofnode(dev))
  		return 0;
-@@ -1207,10 +1285,20 @@ static int pci_uclass_child_post_bind(struct udevice *dev)
+@@ -1242,10 +1320,20 @@ static int pci_uclass_child_post_bind(struct udevice *dev)
  	pplat = dev_get_parent_plat(dev);
  
  	/* Extract vendor id and device id if available */
@@ -2289,7 +2290,7 @@ index c370f8c6400..6518f299a69 100644
  
  	return 0;
  }
-@@ -1459,7 +1547,20 @@ phys_addr_t dm_pci_bus_to_phys(struct udevice *dev, pci_addr_t bus_addr,
+@@ -1494,7 +1582,20 @@ phys_addr_t dm_pci_bus_to_phys(struct udevice *dev, pci_addr_t bus_addr,
  		return res->phys_start + offset;
  	}
  
@@ -2311,7 +2312,7 @@ index c370f8c6400..6518f299a69 100644
  	return 0;
  }
  
-@@ -1499,7 +1600,11 @@ pci_addr_t dm_pci_phys_to_bus(struct udevice *dev, phys_addr_t phys_addr,
+@@ -1534,7 +1635,11 @@ pci_addr_t dm_pci_phys_to_bus(struct udevice *dev, phys_addr_t phys_addr,
  		return res->bus_start + offset;
  	}
  
