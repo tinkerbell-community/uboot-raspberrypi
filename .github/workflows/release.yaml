@@ -417,27 +417,19 @@ jobs:
           path: edk2-platforms
           fetch-depth: 1
 
-      - name: Ensure GCC5 toolchain
-        run: |
-          if ! command -v aarch64-linux-gnu-gcc &> /dev/null; then
-            echo "Cross-compiler prefix not found, creating symlinks from native gcc"
-            for tool in gcc g++ ar ld objcopy objdump ranlib nm strip; do
-              if command -v $tool &> /dev/null; then
-                sudo ln -sf $(which $tool) /usr/local/bin/aarch64-linux-gnu-$tool
-              fi
-            done
-          fi
-          aarch64-linux-gnu-gcc --version
-
       - name: Build EDK2 StandaloneMM RPMB
         run: |
           export WORKSPACE=$(pwd)
           export PACKAGES_PATH=$WORKSPACE/edk2:$WORKSPACE/edk2-platforms
           export ACTIVE_PLATFORM="Platform/StandaloneMm/PlatformStandaloneMmPkg/PlatformStandaloneMmRpmb.dsc"
-          export GCC5_AARCH64_PREFIX=aarch64-linux-gnu-
 
+          # Build BaseTools with explicit native toolchain (host tools, not cross-compiled)
           source edk2/edksetup.sh
-          make -C edk2/BaseTools -j $(nproc)
+          PATH="/usr/bin:/bin:/usr/sbin:/sbin" make -C edk2/BaseTools -j $(nproc) \
+            CC=gcc CXX=g++ AR=/usr/bin/ar RANLIB=/usr/bin/ranlib
+
+          # GCC5 cross-prefix: on native aarch64 runner, gcc IS the aarch64 compiler
+          export GCC5_AARCH64_PREFIX=""
           build -p $ACTIVE_PLATFORM -b RELEASE -a AARCH64 -t GCC5 -n $(nproc)
 
           # Verify output
