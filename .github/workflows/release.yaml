@@ -465,6 +465,11 @@ jobs:
       contents: read
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: src
       - name: Cache and install build dependencies
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
@@ -568,10 +573,10 @@ jobs:
           path: arm-trusted-firmware
           fetch-depth: 1
 
-      - name: Checkout uboot-raspberrypi (for TF-A patches)
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          path: uboot-raspberrypi
+          path: src
 
       - name: Apply patched rpi4_bl31_setup.c
         working-directory: arm-trusted-firmware
