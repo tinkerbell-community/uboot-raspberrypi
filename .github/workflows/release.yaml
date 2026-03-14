@@ -484,6 +484,14 @@ jobs:
           path: optee_os
           fetch-depth: 1
 
+      - name: Apply OP-TEE platform patches
+        working-directory: optee_os
+        run: |
+          for patch in $(find ${{ github.workspace }}/src/patches/optee -type f -name '*.patch' | sort); do
+            echo "Applying patch $patch"
+            patch -p1 < "$patch" || (echo "Failed to apply patch $patch" && exit 1)
+          done
+
       - name: Build OP-TEE OS with StandaloneMM
         working-directory: optee_os
         run: |
@@ -513,27 +521,25 @@ jobs:
             CFG_TEE_TA_LOG_LEVEL=1 \
             CFG_SCTLR_ALIGNMENT_CHECK=n
 
-          # Verify outputs — TF-A consumes these three binaries to create the FIP/armstub
+          # Verify output — tee.bin gets concatenated into the TF-A armstub
           echo "OP-TEE build outputs:"
-          ls -lah out/arm-plat-${{ matrix.platform.name }}/core/tee-header_v2.bin
-          ls -lah out/arm-plat-${{ matrix.platform.name }}/core/tee-pager_v2.bin
-          ls -lah out/arm-plat-${{ matrix.platform.name }}/core/tee-pageable_v2.bin
+          ls -lah out/arm-plat-${{ matrix.platform.name }}/core/tee.bin
 
-      - name: Upload OP-TEE binaries
+      - name: Upload OP-TEE binary
         uses: actions/upload-artifact@v4
         with:
           name: optee-binary-${{ matrix.platform.artifact_suffix }}
-          path: optee_os/out/arm-plat-${{ matrix.platform.name }}/core/tee-*_v2.bin
+          path: optee_os/out/arm-plat-${{ matrix.platform.name }}/core/tee.bin
           retention-days: 1
           if-no-files-found: error
 
   build-tfa:
-    needs: [determine-version, build-optee, build-uboot]
+    needs: [determine-version, build-optee]
     runs-on: ubuntu-24.04-arm
     strategy:
       matrix:
         platform:
-          - tfa_plat: rpi3
+          - tfa_plat: rpi4
             optee_suffix: rpi4
             artifact_suffix: rpi4
           - tfa_plat: rpi5
@@ -549,17 +555,11 @@ jobs:
           packages: build-essential git gcc-aarch64-linux-gnu python3-pyelftools
           version: 1.0
 
-      - name: Download OP-TEE binaries
+      - name: Download OP-TEE binary
         uses: actions/download-artifact@v4
         with:
           name: optee-binary-${{ matrix.platform.optee_suffix }}
           path: optee
-
-      - name: Download U-Boot binary
-        uses: actions/download-artifact@v4
-        with:
-          name: uboot-binary
-          path: uboot
 
       - name: Checkout ARM Trusted Firmware
         uses: actions/checkout@v4
@@ -568,63 +568,51 @@ jobs:
           path: arm-trusted-firmware
           fetch-depth: 1
 
-      - name: Build TF-A with FIP
+      - name: Checkout uboot-raspberrypi (for TF-A patches)
+        uses: actions/checkout@v4
+        with:
+          path: uboot-raspberrypi
+
+      - name: Apply patched rpi4_bl31_setup.c
+        working-directory: arm-trusted-firmware
+        run: |
+          patch -p1 < ${{ github.workspace }}/src/patches/tfa.patch
+          echo "Applied TF-A patches"
+
+      - name: Build TF-A (RESET_TO_BL31)
         working-directory: arm-trusted-firmware
         run: |
           PLAT=${{ matrix.platform.tfa_plat }}
-          BUILD_DIR=build/${PLAT}/debug
 
-          # Resolve absolute paths for OP-TEE and U-Boot binaries
-          BL32_PATH=$(realpath ../optee/tee-header_v2.bin)
-          BL32_EXTRA1_PATH=$(realpath ../optee/tee-pager_v2.bin)
-          BL32_EXTRA2_PATH=$(realpath ../optee/tee-pageable_v2.bin)
-          BL33_PATH=$(realpath ../uboot/u-boot.bin)
-
-          echo "BL32 (OP-TEE header): ${BL32_PATH}"
-          echo "BL32_EXTRA1 (pager): ${BL32_EXTRA1_PATH}"
-          echo "BL32_EXTRA2 (pageable): ${BL32_EXTRA2_PATH}"
-          echo "BL33 (U-Boot): ${BL33_PATH}"
-
-          # Build TF-A and create FIP bundling BL31 + BL32 (OP-TEE) + BL33 (U-Boot).
-          # SPD=opteed: OP-TEE Dispatcher — TF-A manages OP-TEE at S-EL1.
-          # rpi3 platform: `all` includes `armstub` target which auto-concatenates
-          #   bl1.bin (padded to 128KB) + fip.bin → armstub8.bin
-          # rpi4/rpi5 platforms: `all` only builds bl31 (RESET_TO_BL31=1),
-          #   so we manually concatenate below.
+          # Build BL31 with opteed dispatcher for RESET_TO_BL31 platforms.
+          # The patched rpi4_bl31_setup.c handles OP-TEE loading at runtime
+          # via memcpy from armstub offset 0x20000, so no FIP or BL32/BL33
+          # build arguments are needed.
+          # U-Boot (BL33) is loaded separately by GPU firmware as "kernel".
           make PLAT=${PLAT} \
             SPD=opteed \
-            BL32=${BL32_PATH} \
-            BL32_EXTRA1=${BL32_EXTRA1_PATH} \
-            BL32_EXTRA2=${BL32_EXTRA2_PATH} \
-            BL33=${BL33_PATH} \
             DEBUG=1 \
             -j$(nproc) \
-            fip all
+            all
 
           echo "TF-A build outputs:"
-          find ${BUILD_DIR}/ -name '*.bin' -ls
+          find build/${PLAT}/debug/ -name '*.bin' -ls
 
-      - name: Concatenate armstub (RESET_TO_BL31 platforms)
+      - name: Create armstub (BL31 + OP-TEE)
         working-directory: arm-trusted-firmware
         run: |
           PLAT=${{ matrix.platform.tfa_plat }}
           BUILD_DIR=build/${PLAT}/debug
 
-          # rpi3 `all: armstub` auto-generates armstub8.bin (bl1 + fip).
-          # For RESET_TO_BL31 platforms (rpi4/rpi5), bl31.bin includes the
-          # armstub8 header (armstub8_header.S) and IS the entry code.
-          # Manually replicate the concatenation: bl31.bin (pad to 128KB) + fip.bin
-          if [ ! -f "${BUILD_DIR}/armstub8.bin" ]; then
-            echo "armstub8.bin not auto-generated — manual concatenation"
-            cp ${BUILD_DIR}/bl31.bin ${BUILD_DIR}/bl31_pad.bin
-            truncate --size=131072 ${BUILD_DIR}/bl31_pad.bin
-            cat ${BUILD_DIR}/bl31_pad.bin ${BUILD_DIR}/fip.bin > ${BUILD_DIR}/armstub8.bin
-            rm ${BUILD_DIR}/bl31_pad.bin
-            echo "Created armstub8.bin (bl31 padded to 128KB + fip.bin)"
-          else
-            echo "armstub8.bin auto-generated by platform"
-          fi
-
+          # Concatenate: bl31.bin (padded to 128KB/0x20000) + tee.bin → armstub8.bin
+          # GPU firmware loads armstub to address 0x0, so OP-TEE lands at
+          # physical address 0x20000. The patched rpi4_bl31_setup.c does
+          # memcpy(0x10100000, 0x20000, 500KB) to copy it to secure DRAM.
+          echo "Creating armstub: bl31.bin (pad to 128KB) + tee.bin"
+          cp ${BUILD_DIR}/bl31.bin ${BUILD_DIR}/armstub8.bin
+          truncate --size=131072 ${BUILD_DIR}/armstub8.bin
+          cat ../optee/tee.bin >> ${BUILD_DIR}/armstub8.bin
+          echo "Created armstub8.bin ($(stat -c%s ${BUILD_DIR}/armstub8.bin) bytes)"
           ls -lah ${BUILD_DIR}/armstub8.bin
 
       - name: Upload TF-A armstub
@@ -688,10 +676,11 @@ jobs:
           cp artifacts/ipxe-arm64-binary/snp.efi build/EFI/BOOT/BOOTAA64.EFI
 
           # Copy TF-A armstub binaries
-          # TF-A (armstub8) bundles BL31 + BL32 (OP-TEE) + BL33 (U-Boot) via FIP
+          # armstub8 = BL31 (padded to 128KB) + OP-TEE (tee.bin) concatenated.
+          # U-Boot is loaded separately by GPU firmware as "kernel" at 0x80000.
           echo "Copying TF-A armstub binaries..."
-          cp artifacts/tfa-binary-rpi4/armstub8.bin build/armstub8-rpi4.bin
-          cp artifacts/tfa-binary-rpi5/armstub8.bin build/armstub8-rpi5.bin
+          cp artifacts/tfa-binary-rpi4/armstub8.bin build/armstub8.bin
+          cp artifacts/tfa-binary-rpi5/armstub8.bin build/armstub8-2712.bin
           echo "TF-A armstub binaries:"
           ls -lah build/armstub8-*.bin
 

@@ -1,0 +1,117 @@
+diff --git a/docs/plat/rpi5.rst b/docs/plat/rpi5.rst
+index f2e1b9f..6b03a84 100644
+--- a/docs/plat/rpi5.rst
++++ b/docs/plat/rpi5.rst
+@@ -65,6 +65,23 @@
+ By default, all boot stages print messages to the dedicated UART debug port.
+ Configuration is ``115200 8n1``.
+ 
++OP-TEE
++------
++
++It is possible to use OP-TEE. But there is a caveat: OP-TEE image should be
++load together with TF-A image, but RPI loader can load one file only. Solution
++is to pack TF-A and OP-TEE into one image.
++
++Build TF-A with ``SPD=opteed`` option and then attach OP-TEE image to TF-A:
++
++.. code:: shell
++
++    cp build/rpi5/debug/bl31.bin bl31_bl32.bin
++    dd if=tee-raw.bin of=bl31_bl32.bin bs=1024 seek=512
++
++Then copy resulting ``bl31_bl32.bin`` to boot media as described in
++the previous section.
++
+ Design
+ ------------------
+ 
+diff --git a/plat/rpi/common/rpi3_common.c b/plat/rpi/common/rpi3_common.c
+index 8976496..1051857 100644
+--- a/plat/rpi/common/rpi3_common.c
++++ b/plat/rpi/common/rpi3_common.c
+@@ -48,6 +48,12 @@
+ 				RPI3_OPTEE_PAGEABLE_LOAD_BASE,	\
+ 				RPI3_OPTEE_PAGEABLE_LOAD_SIZE,	\
+ 				MT_MEMORY | MT_RW | MT_SECURE)
++# ifdef RPI_OPTEE_IMAGE_BASE
++# define MAP_OPTEE_IMAGE_PAGEABLE	MAP_REGION_FLAT(		\
++					RPI_OPTEE_IMAGE_BASE,		\
++					RPI_OPTEE_IMAGE_SIZE,		\
++					MT_MEMORY | MT_RW | MT_SECURE)
++# endif
+ #endif
+ 
+ /*
+@@ -94,6 +100,9 @@
+ #ifdef BL32_BASE
+ 	MAP_BL32_MEM,
+ #endif
++#ifdef RPI_OPTEE_IMAGE_BASE
++	MAP_OPTEE_IMAGE_PAGEABLE,
++#endif
+ 	{0}
+ };
+ #endif
+diff --git a/plat/rpi/common/rpi4_bl31_setup.c b/plat/rpi/common/rpi4_bl31_setup.c
+index a7228fd..ab0355f 100644
+--- a/plat/rpi/common/rpi4_bl31_setup.c
++++ b/plat/rpi/common/rpi4_bl31_setup.c
+@@ -132,6 +132,15 @@
+ 	/* Initialize the console to provide early debug support. */
+ 	rpi3_console_init();
+ 
++#ifdef SPD_opteed
++	VERBOSE("rpi: Moving OP-TEE Image to %x\n", BL32_BASE);
++	memcpy((void*)BL32_BASE, (void*)RPI_OPTEE_IMAGE_BASE,
++	       RPI_OPTEE_IMAGE_SIZE);
++	bl32_image_ep_info.pc = BL32_BASE;
++	bl32_image_ep_info.spsr = rpi3_get_spsr_for_bl33_entry();
++	bl32_image_ep_info.args.arg3 = rpi4_get_dtb_address();
++	SET_SECURITY_STATE(bl33_image_ep_info.h.attr, SECURE);
++#endif
+ 	bl33_image_ep_info.pc = plat_get_ns_image_entrypoint();
+ 	bl33_image_ep_info.spsr = rpi3_get_spsr_for_bl33_entry();
+ 	SET_SECURITY_STATE(bl33_image_ep_info.h.attr, NON_SECURE);
+diff --git a/plat/rpi/rpi5/platform.mk b/plat/rpi/rpi5/platform.mk
+index 81b7ded..c24e90d 100644
+--- a/plat/rpi/rpi5/platform.mk
++++ b/plat/rpi/rpi5/platform.mk
+@@ -101,6 +101,24 @@
+   $(error Error: AArch32 not supported on rpi5)
+ endif
+ 
++ifeq (${SPD},opteed)
++
++BL32_BASE		  ?= 0x10100000
++BL32_MEM_SIZE	?= 0x00F00000
++BL32_MEM_BASE	= BL32_BASE
++
++# We expect that OP-TEE image will be placed right after TF-A
++RPI_OPTEE_IMAGE_BASE	?= 0x20000
++# 1MB should be enough
++RPI_OPTEE_IMAGE_SIZE	?= 0x100000
++
++$(eval $(call add_define,BL32_MEM_BASE))
++$(eval $(call add_define,BL32_MEM_SIZE))
++$(eval $(call add_define,BL32_BASE))
++$(eval $(call add_define,RPI_OPTEE_IMAGE_BASE))
++$(eval $(call add_define,RPI_OPTEE_IMAGE_SIZE))
++endif
++
+ ifneq ($(ENABLE_STACK_PROTECTOR), 0)
+ PLAT_BL_COMMON_SOURCES	+=	drivers/rpi3/rng/rpi3_rng.c		\
+ 				plat/rpi/common/rpi3_stack_protector.c
+diff --git a/Makefile b/Makefile
+index 930925675..c2cdfe600 100644
+--- a/Makefile
++++ b/Makefile
+@@ -136,7 +136,7 @@ DOCS_PATH           ?=      docs
+ ifneq (${DEBUG}, 0)
+        BUILD_TYPE      :=      debug
+        # Use LOG_LEVEL_INFO by default for debug builds
+-       LOG_LEVEL       :=      40
++       LOG_LEVEL       :=      50
+ else
+        BUILD_TYPE      :=      release
+        # Use LOG_LEVEL_NOTICE by default for release builds

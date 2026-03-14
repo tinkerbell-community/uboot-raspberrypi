@@ -37,15 +37,15 @@ dtoverlay=disable-bt
 # Disable Wireless Lan.
 dtoverlay=disable-wifi
 dtoverlay=vc4-kms-v3d-pi4,noaudio
-# TF-A armstub bundles BL31 + OP-TEE (BL32) + U-Boot (BL33) via FIP
-armstub=armstub8-rpi4.bin
+# TF-A armstub (BL31 + OP-TEE). U-Boot loaded by GPU as kernel.
+armstub=armstub8.bin
 enable_gic=1
 
 [pi5]
 enable_uart=0
 framebuffer_depth=16
-# TF-A armstub bundles BL31 + OP-TEE (BL32) + U-Boot (BL33) via FIP
-armstub=armstub8-rpi5.bin
+# TF-A armstub (BL31 + OP-TEE). U-Boot loaded by GPU as kernel.
+armstub=armstub8-2712.bin
 enable_gic=1
 
 [all]
