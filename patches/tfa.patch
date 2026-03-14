@@ -89,7 +89,7 @@ index b72aedc..bfc1913 100644
  #define MAX_IO_DEVICES			U(3)
  #define MAX_IO_HANDLES			U(4)
 diff --git a/plat/rpi/rpi4/platform.mk b/plat/rpi/rpi4/platform.mk
-index 9519087..74a3c4c 100644
+index 9519087..325a6a9 100644
 --- a/plat/rpi/rpi4/platform.mk
 +++ b/plat/rpi/rpi4/platform.mk
 @@ -108,6 +108,25 @@ ifeq (${ARCH},aarch32)
@@ -98,9 +98,9 @@ index 9519087..74a3c4c 100644
  
 +ifeq (${SPD},opteed)
 +
-+# Very end of first 2GB
-+BL32_BASE		?= 0x1D000000
-+BL32_MEM_SIZE		?= 0x02000000
++# Must match OP-TEE plat-rpi3 CFG_TZDRAM_START/CFG_TZDRAM_SIZE
++BL32_BASE		?= 0x10100000
++BL32_MEM_SIZE		?= 0x00F00000
 +BL32_MEM_BASE		= BL32_BASE
 +
 +# We expect that OP-TEE image will be placed right after TF-A
