@@ -20,7 +20,7 @@ on:
       - 'v*'
 
 env:
-  UBOOT_VERSION: ${{ inputs.uboot_version || 'v2026.04-rc1' }}
+  UBOOT_VERSION: ${{ inputs.uboot_version || 'v2026.04-rc4' }}
   UBOOT_DIR: ${{ github.workspace }}/u-boot
   RPI_FIRMWARE_VERSION: ${{ inputs.rpi_firmware_version || 'next' }}
   RPI_KERNEL_VERSION: ${{ inputs.rpi_kernel_version || 'stable_20250428' }}
