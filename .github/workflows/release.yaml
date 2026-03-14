@@ -399,8 +399,14 @@ jobs:
       - name: Cache and install build dependencies
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
-          packages: build-essential gcc-aarch64-linux-gnu git uuid-dev iasl python3-pyelftools libgnutls28-dev
-          version: 1.1
+          packages: build-essential clang lld llvm git uuid-dev iasl python3-pyelftools
+          version: 1.4
+
+      - name: Cache git folder
+        uses: actions/cache@v3
+        with:
+          path: edk2/.git
+          key: edk2-git
 
       - name: Checkout EDK2
         uses: actions/checkout@v4
@@ -423,23 +429,25 @@ jobs:
           export PACKAGES_PATH=$WORKSPACE/edk2:$WORKSPACE/edk2-platforms
           export ACTIVE_PLATFORM="Platform/StandaloneMm/PlatformStandaloneMmPkg/PlatformStandaloneMmRpmb.dsc"
 
-          # Build BaseTools with explicit native toolchain (host tools, not cross-compiled)
-          source edk2/edksetup.sh
+          # Build BaseTools (host tools) with native gcc
           PATH="/usr/bin:/bin:/usr/sbin:/sbin" make -C edk2/BaseTools -j $(nproc) \
             CC=gcc CXX=g++ AR=/usr/bin/ar RANLIB=/usr/bin/ranlib
 
-          # GCC5 cross-prefix: on native aarch64 runner, gcc IS the aarch64 compiler
-          export GCC5_AARCH64_PREFIX=""
-          build -p $ACTIVE_PLATFORM -b RELEASE -a AARCH64 -t GCC5 -n $(nproc)
+          source edk2/edksetup.sh
+
+          # Use CLANGDWARF to avoid GCC 13+ LTO incompatibility with mbedtls inline asm.
+          # On native aarch64 runner, clang targets the host arch directly — no cross-prefix.
+          export CLANGDWARF_AARCH64_PREFIX=""
+          build -p $ACTIVE_PLATFORM -b RELEASE -a AARCH64 -t CLANGDWARF -n $(nproc)
 
           # Verify output
-          ls -lah Build/MmStandaloneRpmb/RELEASE_GCC5/FV/BL32_AP_MM.fd
+          ls -lah Build/MmStandaloneRpmb/RELEASE_CLANGDWARF/FV/BL32_AP_MM.fd
 
       - name: Upload EDK2 StandaloneMM binary
         uses: actions/upload-artifact@v4
         with:
           name: edk2-mm-binary
-          path: Build/MmStandaloneRpmb/RELEASE_GCC5/FV/BL32_AP_MM.fd
+          path: Build/MmStandaloneRpmb/RELEASE_CLANGDWARF/FV/BL32_AP_MM.fd
           retention-days: 1
           if-no-files-found: error
 
@@ -460,8 +468,8 @@ jobs:
       - name: Cache and install build dependencies
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
-          packages: build-essential git python3-cryptography gcc-arm-linux-gnueabihf
-          version: 1.0
+          packages: build-essential git python3-cryptography gcc-arm-linux-gnueabihf python3-pyelftools
+          version: 1.1
 
       - name: Download EDK2 StandaloneMM binary
         uses: actions/download-artifact@v4
@@ -482,19 +490,16 @@ jobs:
           # Use absolute path for StandaloneMM binary
           STMM_PATH=$(realpath ../edk2-mm/BL32_AP_MM.fd)
 
-          # Build OP-TEE as standalone EL3 secure monitor (no TF-A required).
-          # CFG_WITH_ARM_TRUSTED_FW=n: OP-TEE handles EL3 secure monitor duties itself.
-          # CFG_NS_ENTRY_ADDR: where GPU firmware loads the kernel (U-Boot) = 0x80000.
-          # On boot: GPU loads armstub (OP-TEE) to 0x0, kernel (U-Boot) to 0x80000.
-          # OP-TEE starts at EL3, initializes secure world, then drops to NS-EL2
-          # and jumps to U-Boot at 0x80000.
+          # Build OP-TEE as BL32 for TF-A integration.
+          # CFG_WITH_ARM_TRUSTED_FW=y: OP-TEE runs at S-EL1 under TF-A's EL3.
+          # TF-A launches OP-TEE, which initializes secure world services,
+          # then returns to TF-A via SMC. TF-A then jumps to BL33 (U-Boot).
           make -j$(nproc) \
             ARCH=arm \
             CFG_ARM64_core=y \
             CROSS_COMPILE=arm-linux-gnueabihf- \
             PLATFORM=${{ matrix.platform.name }} \
-            CFG_WITH_ARM_TRUSTED_FW=n \
-            CFG_NS_ENTRY_ADDR=0x80000 \
+            CFG_WITH_ARM_TRUSTED_FW=y \
             CFG_STMM_PATH=${STMM_PATH} \
             CFG_RPMB_FS=y \
             CFG_RPMB_FS_DEV_ID=0 \
@@ -508,22 +513,102 @@ jobs:
             CFG_TEE_TA_LOG_LEVEL=1 \
             CFG_SCTLR_ALIGNMENT_CHECK=n
 
-          # Verify outputs
+          # Verify outputs — TF-A consumes these three binaries to create the FIP/armstub
           echo "OP-TEE build outputs:"
-          ls -lah out/arm-plat-${{ matrix.platform.name }}/core/tee.bin
-          ls -lah out/arm-plat-${{ matrix.platform.name }}/core/tee-pager_v2.bin
           ls -lah out/arm-plat-${{ matrix.platform.name }}/core/tee-header_v2.bin
+          ls -lah out/arm-plat-${{ matrix.platform.name }}/core/tee-pager_v2.bin
+          ls -lah out/arm-plat-${{ matrix.platform.name }}/core/tee-pageable_v2.bin
 
-      - name: Upload OP-TEE binary
+      - name: Upload OP-TEE binaries
         uses: actions/upload-artifact@v4
         with:
           name: optee-binary-${{ matrix.platform.artifact_suffix }}
-          path: optee_os/out/arm-plat-${{ matrix.platform.name }}/core/tee.bin
+          path: optee_os/out/arm-plat-${{ matrix.platform.name }}/core/tee-*_v2.bin
+          retention-days: 1
+          if-no-files-found: error
+
+  build-tfa:
+    needs: [determine-version, build-optee, build-uboot]
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      matrix:
+        platform:
+          - tfa_plat: rpi3
+            optee_suffix: rpi4
+            artifact_suffix: rpi4
+          - tfa_plat: rpi5
+            optee_suffix: rpi5
+            artifact_suffix: rpi5
+    permissions:
+      contents: read
+
+    steps:
+      - name: Cache and install build dependencies
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: build-essential git gcc-aarch64-linux-gnu python3-pyelftools
+          version: 1.0
+
+      - name: Download OP-TEE binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: optee-binary-${{ matrix.platform.optee_suffix }}
+          path: optee
+
+      - name: Download U-Boot binary
+        uses: actions/download-artifact@v4
+        with:
+          name: uboot-binary
+          path: uboot
+
+      - name: Checkout ARM Trusted Firmware
+        uses: actions/checkout@v4
+        with:
+          repository: ARM-software/arm-trusted-firmware
+          path: arm-trusted-firmware
+          fetch-depth: 1
+
+      - name: Build TF-A with FIP
+        working-directory: arm-trusted-firmware
+        run: |
+          # Resolve absolute paths for OP-TEE and U-Boot binaries
+          BL32_PATH=$(realpath ../optee/tee-header_v2.bin)
+          BL32_EXTRA1_PATH=$(realpath ../optee/tee-pager_v2.bin)
+          BL32_EXTRA2_PATH=$(realpath ../optee/tee-pageable_v2.bin)
+          BL33_PATH=$(realpath ../uboot/u-boot.bin)
+
+          echo "BL32 (OP-TEE header): ${BL32_PATH}"
+          echo "BL32_EXTRA1 (pager): ${BL32_EXTRA1_PATH}"
+          echo "BL32_EXTRA2 (pageable): ${BL32_EXTRA2_PATH}"
+          echo "BL33 (U-Boot): ${BL33_PATH}"
+
+          # Build TF-A and create FIP bundling BL31 + BL32 (OP-TEE) + BL33 (U-Boot).
+          # SPD=opteed: OP-TEE Dispatcher — TF-A manages OP-TEE at S-EL1.
+          # The TF-A build system uses fiptool to bundle binaries into fip.bin,
+          # then auto-concatenates entry code with fip.bin into the final armstub.
+          make PLAT=${{ matrix.platform.tfa_plat }} \
+            SPD=opteed \
+            BL32=${BL32_PATH} \
+            BL32_EXTRA1=${BL32_EXTRA1_PATH} \
+            BL32_EXTRA2=${BL32_EXTRA2_PATH} \
+            BL33=${BL33_PATH} \
+            DEBUG=1 \
+            -j$(nproc) \
+            fip all
+
+          echo "TF-A build outputs:"
+          find build/${{ matrix.platform.tfa_plat }}/ -name '*.bin' -ls
+
+      - name: Upload TF-A armstub
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfa-binary-${{ matrix.platform.artifact_suffix }}
+          path: arm-trusted-firmware/build/${{ matrix.platform.tfa_plat }}/debug/armstub8.bin
           retention-days: 1
           if-no-files-found: error
 
   build-image:
-    needs: [determine-version, build-uboot, checkout-firmware, build-ipxe-arm64, prepare-config, build-kernel-dtbs, build-optee]
+    needs: [determine-version, build-uboot, checkout-firmware, build-ipxe-arm64, prepare-config, build-kernel-dtbs, build-tfa]
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: write
@@ -574,13 +659,13 @@ jobs:
           mkdir -p build/EFI/BOOT
           cp artifacts/ipxe-arm64-binary/snp.efi build/EFI/BOOT/BOOTAA64.EFI
 
-          # Copy OP-TEE armstub binaries
-          # OP-TEE acts as EL3 secure monitor (armstub) - loaded by GPU firmware before U-Boot
-          echo "Copying OP-TEE armstub binaries..."
-          cp artifacts/optee-binary-rpi4/tee.bin build/tee-rpi4.bin
-          cp artifacts/optee-binary-rpi5/tee.bin build/tee-rpi5.bin
-          echo "OP-TEE armstub binaries:"
-          ls -lah build/tee-*.bin
+          # Copy TF-A armstub binaries
+          # TF-A (armstub8) bundles BL31 + BL32 (OP-TEE) + BL33 (U-Boot) via FIP
+          echo "Copying TF-A armstub binaries..."
+          cp artifacts/tfa-binary-rpi4/armstub8.bin build/armstub8-rpi4.bin
+          cp artifacts/tfa-binary-rpi5/armstub8.bin build/armstub8-rpi5.bin
+          echo "TF-A armstub binaries:"
+          ls -lah build/armstub8-*.bin
 
           echo "Build directory contents:"
           ls -lah build/

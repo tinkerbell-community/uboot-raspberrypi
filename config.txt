@@ -37,14 +37,15 @@ dtoverlay=disable-bt
 # Disable Wireless Lan.
 dtoverlay=disable-wifi
 dtoverlay=vc4-kms-v3d-pi4,noaudio
-# OP-TEE as EL3 secure monitor (armstub) for secure UEFI variable storage
-armstub=tee-rpi4.bin
+# TF-A armstub bundles BL31 + OP-TEE (BL32) + U-Boot (BL33) via FIP
+armstub=armstub8-rpi4.bin
 enable_gic=1
 
 [pi5]
 enable_uart=0
 framebuffer_depth=16
-# OP-TEE as EL3 secure monitor (armstub) for secure UEFI variable storage
-armstub=tee-rpi5.bin
+# TF-A armstub bundles BL31 + OP-TEE (BL32) + U-Boot (BL33) via FIP
+armstub=armstub8-rpi5.bin
+enable_gic=1
 
 [all]
