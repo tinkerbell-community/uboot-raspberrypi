@@ -40,8 +40,8 @@ dtoverlay=vc4-kms-v3d-pi4,noaudio
 # TF-A armstub (BL31 + OP-TEE). U-Boot loaded by GPU as kernel.
 armstub=armstub8.bin
 enable_gic=1
-# Load kernel past armstub (512KB BL31 + 1MB OP-TEE = 0x180000).
-kernel_address=0x200000
+# Load kernel past armstub (512KB BL31 + 4MB OP-TEE = 0x480000).
+kernel_address=0x500000
 
 [pi5]
 enable_uart=0
@@ -49,7 +49,7 @@ framebuffer_depth=16
 # TF-A armstub (BL31 + OP-TEE). U-Boot loaded by GPU as kernel.
 armstub=armstub8-2712.bin
 enable_gic=1
-# Load kernel past armstub (512KB BL31 + 1MB OP-TEE = 0x180000).
-kernel_address=0x200000
+# Load kernel past armstub (512KB BL31 + 4MB OP-TEE = 0x480000).
+kernel_address=0x500000
 
 [all]

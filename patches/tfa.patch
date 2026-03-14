@@ -89,7 +89,7 @@ index b72aedc..bfc1913 100644
  #define MAX_IO_DEVICES			U(3)
  #define MAX_IO_HANDLES			U(4)
 diff --git a/plat/rpi/rpi4/platform.mk b/plat/rpi/rpi4/platform.mk
-index 9519087..325a6a9 100644
+index 9519087..5f8c46a 100644
 --- a/plat/rpi/rpi4/platform.mk
 +++ b/plat/rpi/rpi4/platform.mk
 @@ -108,6 +108,25 @@ ifeq (${ARCH},aarch32)
@@ -105,8 +105,8 @@ index 9519087..325a6a9 100644
 +
 +# We expect that OP-TEE image will be placed right after TF-A
 +RPI_OPTEE_IMAGE_BASE	?= 0x80000
-+# 1MB should be enough
-+RPI_OPTEE_IMAGE_SIZE	?= 0x100000
++# 4MB — must accommodate tee.bin with embedded StandaloneMM
++RPI_OPTEE_IMAGE_SIZE	?= 0x400000
 +
 +$(eval $(call add_define,BL32_MEM_BASE))
 +$(eval $(call add_define,BL32_MEM_SIZE))
@@ -134,7 +134,7 @@ index a4c2f5b..67a14f0 100644
  #define MAX_IO_DEVICES			U(3)
  #define MAX_IO_HANDLES			U(4)
 diff --git a/plat/rpi/rpi5/platform.mk b/plat/rpi/rpi5/platform.mk
-index 2403c86..89a7b6b 100644
+index 2403c86..e2224bd 100644
 --- a/plat/rpi/rpi5/platform.mk
 +++ b/plat/rpi/rpi5/platform.mk
 @@ -105,6 +105,25 @@ ifeq (${ARCH},aarch32)
@@ -150,8 +150,8 @@ index 2403c86..89a7b6b 100644
 +
 +# We expect that OP-TEE image will be placed right after TF-A
 +RPI_OPTEE_IMAGE_BASE	?= 0x80000
-+# 1MB should be enough
-+RPI_OPTEE_IMAGE_SIZE	?= 0x100000
++# 4MB — must accommodate tee.bin with embedded StandaloneMM
++RPI_OPTEE_IMAGE_SIZE	?= 0x400000
 +
 +$(eval $(call add_define,BL32_MEM_BASE))
 +$(eval $(call add_define,BL32_MEM_SIZE))
