@@ -54,7 +54,7 @@ index 4908354..3652595 100644
  	{0}
  };
 diff --git a/plat/rpi/common/rpi4_bl31_setup.c b/plat/rpi/common/rpi4_bl31_setup.c
-index a7228fd..ab0355f 100644
+index a7228fd..3721e39 100644
 --- a/plat/rpi/common/rpi4_bl31_setup.c
 +++ b/plat/rpi/common/rpi4_bl31_setup.c
 @@ -132,6 +132,15 @@ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
@@ -66,13 +66,43 @@ index a7228fd..ab0355f 100644
 +	memcpy((void*)BL32_BASE, (void*)RPI_OPTEE_IMAGE_BASE,
 +	       RPI_OPTEE_IMAGE_SIZE);
 +	bl32_image_ep_info.pc = BL32_BASE;
-+	bl32_image_ep_info.spsr = rpi3_get_spsr_for_bl33_entry();
++	bl32_image_ep_info.spsr = rpi3_get_spsr_for_bl32_entry();
 +	bl32_image_ep_info.args.arg3 = rpi4_get_dtb_address();
-+	SET_SECURITY_STATE(bl33_image_ep_info.h.attr, SECURE);
++	SET_SECURITY_STATE(bl32_image_ep_info.h.attr, SECURE);
 +#endif
  	bl33_image_ep_info.pc = plat_get_ns_image_entrypoint();
  	bl33_image_ep_info.spsr = rpi3_get_spsr_for_bl33_entry();
  	SET_SECURITY_STATE(bl33_image_ep_info.h.attr, NON_SECURE);
+diff --git a/plat/rpi/rpi4/platform.mk b/plat/rpi/rpi4/platform.mk
+index 9519087..74a3c4c 100644
+--- a/plat/rpi/rpi4/platform.mk
++++ b/plat/rpi/rpi4/platform.mk
+@@ -108,6 +108,25 @@ ifeq (${ARCH},aarch32)
+   $(error Error: AArch32 not supported on rpi4)
+ endif
+ 
++ifeq (${SPD},opteed)
++
++# Very end of first 2GB
++BL32_BASE		?= 0x1D000000
++BL32_MEM_SIZE		?= 0x02000000
++BL32_MEM_BASE		= BL32_BASE
++
++# We expect that OP-TEE image will be placed right after TF-A
++RPI_OPTEE_IMAGE_BASE	?= 0x80000
++# 1MB should be enough
++RPI_OPTEE_IMAGE_SIZE	?= 0x100000
++
++$(eval $(call add_define,BL32_MEM_BASE))
++$(eval $(call add_define,BL32_MEM_SIZE))
++$(eval $(call add_define,BL32_BASE))
++$(eval $(call add_define,RPI_OPTEE_IMAGE_BASE))
++$(eval $(call add_define,RPI_OPTEE_IMAGE_SIZE))
++endif
++
+ ifneq ($(ENABLE_STACK_PROTECTOR), 0)
+ PLAT_BL_COMMON_SOURCES	+=	drivers/rpi3/rng/rpi3_rng.c		\
+ 				plat/rpi/common/rpi3_stack_protector.c
 diff --git a/plat/rpi/rpi5/platform.mk b/plat/rpi/rpi5/platform.mk
 index 2403c86..89a7b6b 100644
 --- a/plat/rpi/rpi5/platform.mk

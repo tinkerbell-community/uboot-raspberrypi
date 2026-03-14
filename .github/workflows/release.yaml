@@ -609,13 +609,13 @@ jobs:
           PLAT=${{ matrix.platform.tfa_plat }}
           BUILD_DIR=build/${PLAT}/debug
 
-          # Concatenate: bl31.bin (padded to 128KB/0x20000) + tee.bin → armstub8.bin
+          # Concatenate: bl31.bin (padded to 512KB/0x80000) + tee.bin → armstub8.bin
           # GPU firmware loads armstub to address 0x0, so OP-TEE lands at
-          # physical address 0x20000. The patched rpi4_bl31_setup.c does
-          # memcpy(0x10100000, 0x20000, 500KB) to copy it to secure DRAM.
-          echo "Creating armstub: bl31.bin (pad to 128KB) + tee.bin"
+          # physical address 0x80000 (matching RPI_OPTEE_IMAGE_BASE in platform.mk).
+          # BL31 memcpy's it to BL32_BASE (0x1D000000) at boot.
+          echo "Creating armstub: bl31.bin (pad to 512KB) + tee.bin"
           cp ${BUILD_DIR}/bl31.bin ${BUILD_DIR}/armstub8.bin
-          truncate --size=131072 ${BUILD_DIR}/armstub8.bin
+          truncate --size=524288 ${BUILD_DIR}/armstub8.bin
           cat ../optee/tee.bin >> ${BUILD_DIR}/armstub8.bin
           echo "Created armstub8.bin ($(stat -c%s ${BUILD_DIR}/armstub8.bin) bytes)"
           ls -lah ${BUILD_DIR}/armstub8.bin
