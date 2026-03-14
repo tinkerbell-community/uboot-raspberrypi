@@ -399,8 +399,8 @@ jobs:
       - name: Cache and install build dependencies
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
-          packages: build-essential gcc-aarch64-linux-gnu git uuid-dev iasl python3-pyelftools
-          version: 1.0
+          packages: build-essential gcc-aarch64-linux-gnu git uuid-dev iasl python3-pyelftools libgnutls28-dev
+          version: 1.1
 
       - name: Checkout EDK2
         uses: actions/checkout@v4
