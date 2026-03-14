@@ -122,6 +122,14 @@ jobs:
           echo "CONFIG_BOOTP_DNS2=y" >> .config
           echo "CONFIG_BOOTP_NTPSERVER=y" >> .config
 
+          # SMBIOS: generates System Management BIOS tables passed via UEFI config table to the OS.
+          # Talos Linux reads SMBIOS Type 1 Serial Number as the NoCloud datasource string:
+          #   serial# = "ds=nocloud-net;s=http://<server>/configs/;h=<hostname>"
+          # Set via: fw_setenv -c /boot/fw_env.config serial# "ds=nocloud-net;s=http://..."
+          echo "CONFIG_SYSINFO=y" >> .config
+          echo "CONFIG_SYSINFO_SMBIOS=y" >> .config
+          echo "CONFIG_GENERATE_SMBIOS_TABLE=y" >> .config
+
       - name: Build U-Boot
         working-directory: u-boot
         run: |
@@ -411,6 +419,18 @@ jobs:
           # Copy config file
           cp artifacts/config-files/config.txt build/
 
+          # Create fw_env.config for Tinkerbell provisioning workflows.
+          # Allows fw_setenv to write the U-Boot environment (FAT file: uboot.env).
+          # Talos NoCloud datasource is injected via:
+          #   mount /dev/mmcblk0p1 /boot
+          #   fw_setenv -c /boot/fw_env.config serial# "ds=nocloud-net;s=http://<server>/configs/;h=<hostname>"
+          #   umount /boot
+          cat > build/fw_env.config << 'FW_ENV_EOF'
+          # U-Boot environment — FAT file: /boot/uboot.env
+          # device          offset   size
+          /dev/mmcblk0p1    0x0000   0x4000
+          FW_ENV_EOF
+
           # Copy firmware files
           cp -r artifacts/rpi-firmware/* build/
 
@@ -519,6 +539,8 @@ jobs:
           - NVMe boot support (with patches)
           - iPXE network boot (snp.efi included)
           - Custom boot command for network-first boot
+          - SMBIOS table generation (UEFI config table passed to OS)
+          - U-Boot environment stored in FAT file (\`/boot/uboot.env\`)
 
           ## Installation
 
@@ -548,6 +570,21 @@ jobs:
           - Uses U-Boot as the kernel
           - Configures minimal GPU memory
           - Enables UART for debugging
+
+          ## Talos NoCloud Provisioning
+
+          Set the SMBIOS serial number to configure Talos's NoCloud metadata server before first boot:
+
+          \`\`\`bash
+          # From a Tinkerbell workflow action after flashing the SD card
+          mount /dev/mmcblk0p1 /boot
+          fw_setenv -c /boot/fw_env.config serial# "ds=nocloud-net;s=http://10.10.0.1/configs/;h=HOSTNAME"
+          umount /boot
+          \`\`\`
+
+          Talos reads \`/sys/class/dmi/id/product_serial\` and fetches:
+          - \`http://10.10.0.1/configs/user-data\` (machine config)
+          - \`http://10.10.0.1/configs/network-config\` (optional)
 
           ## Boot Sequence
 
