@@ -73,6 +73,21 @@ index a7228fd..3721e39 100644
  	bl33_image_ep_info.pc = plat_get_ns_image_entrypoint();
  	bl33_image_ep_info.spsr = rpi3_get_spsr_for_bl33_entry();
  	SET_SECURITY_STATE(bl33_image_ep_info.h.attr, NON_SECURE);
+diff --git a/plat/rpi/rpi4/include/platform_def.h b/plat/rpi/rpi4/include/platform_def.h
+index b72aedc..bfc1913 100644
+--- a/plat/rpi/rpi4/include/platform_def.h
++++ b/plat/rpi/rpi4/include/platform_def.h
+@@ -116,8 +116,8 @@
+ #define PLAT_PHY_ADDR_SPACE_SIZE	(ULL(1) << 32)
+ #define PLAT_VIRT_ADDR_SPACE_SIZE	(ULL(1) << 32)
+ 
+-#define MAX_MMAP_REGIONS		8
+-#define MAX_XLAT_TABLES			4
++#define MAX_MMAP_REGIONS		12
++#define MAX_XLAT_TABLES			8
+ 
+ #define MAX_IO_DEVICES			U(3)
+ #define MAX_IO_HANDLES			U(4)
 diff --git a/plat/rpi/rpi4/platform.mk b/plat/rpi/rpi4/platform.mk
 index 9519087..74a3c4c 100644
 --- a/plat/rpi/rpi4/platform.mk
@@ -103,6 +118,21 @@ index 9519087..74a3c4c 100644
  ifneq ($(ENABLE_STACK_PROTECTOR), 0)
  PLAT_BL_COMMON_SOURCES	+=	drivers/rpi3/rng/rpi3_rng.c		\
  				plat/rpi/common/rpi3_stack_protector.c
+diff --git a/plat/rpi/rpi5/include/platform_def.h b/plat/rpi/rpi5/include/platform_def.h
+index a4c2f5b..67a14f0 100644
+--- a/plat/rpi/rpi5/include/platform_def.h
++++ b/plat/rpi/rpi5/include/platform_def.h
+@@ -117,8 +117,8 @@
+ #define PLAT_PHY_ADDR_SPACE_SIZE	(ULL(1) << 40)
+ #define PLAT_VIRT_ADDR_SPACE_SIZE	(ULL(1) << 40)
+ 
+-#define MAX_MMAP_REGIONS		8
+-#define MAX_XLAT_TABLES			4
++#define MAX_MMAP_REGIONS		12
++#define MAX_XLAT_TABLES			8
+ 
+ #define MAX_IO_DEVICES			U(3)
+ #define MAX_IO_HANDLES			U(4)
 diff --git a/plat/rpi/rpi5/platform.mk b/plat/rpi/rpi5/platform.mk
 index 2403c86..89a7b6b 100644
 --- a/plat/rpi/rpi5/platform.mk
