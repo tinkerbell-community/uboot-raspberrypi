@@ -129,6 +129,19 @@ jobs:
           echo "CONFIG_SYSINFO=y" >> .config
           echo "CONFIG_SYSINFO_SMBIOS=y" >> .config
           echo "CONFIG_GENERATE_SMBIOS_TABLE=y" >> .config
+          echo "CONFIG_CMD_SMBIOS=y" >> .config
+
+      - name: Configure Expo Menu
+        working-directory: u-boot
+        run: |
+          echo "CONFIG_BOOTSTD_FULL=y" >> .config
+          echo "CONFIG_BOOTSTD_BOOTCOMMAND=y" >> .config
+          echo "CONFIG_EXPO=y" >> .config
+          echo "CONFIG_BOOTSTD_MENU=y" >> .config
+          # echo "CONFIG_CEDIT=y" >> .config
+          echo "CONFIG_CMD_BOOTMENU=y" >> .config
+          echo "CONFIG_CMD_BOOTFLOW_FULL=y" >> .config
+          echo "CONFIG_AUTOBOOT_MENU_SHOW=y" >> .config
 
       - name: Build U-Boot
         working-directory: u-boot
