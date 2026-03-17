@@ -469,8 +469,88 @@ index 9ac9d6768ca..f879df109ac 100644
  
 -boot_targets=mmc usb pxe dhcp
 +boot_targets=mmc nvme usb pxe dhcp
+diff --git a/boot/Kconfig b/boot/Kconfig
+index e5db165424a..6d624d87b90 100644
+--- a/boot/Kconfig
++++ b/boot/Kconfig
+@@ -2038,6 +2038,7 @@ menu "Configuration editor"
+ config CEDIT
+ 	bool "Configuration editor"
+ 	depends on EXPO
++	select OFNODE_MULTI_TREE
+ 	help
+ 	  Provides a way to deal with board configuration and present it to
+ 	  the user for adjustment.
+diff --git a/boot/cedit.c b/boot/cedit.c
+index 56dc7c6af15..9c1877254b3 100644
+--- a/boot/cedit.c
++++ b/boot/cedit.c
+@@ -700,6 +700,7 @@ int cedit_read_settings_env(struct expo *exp, bool verbose)
+ 	return 0;
+ }
+ 
++#if CONFIG_IS_ENABLED(DM_RTC)
+ static int h_write_settings_cmos(struct scene_obj *obj, void *vpriv)
+ {
+ 	const struct scene_obj_menu *menu;
+@@ -789,6 +790,9 @@ done:
+ 	return ret;
+ }
+ 
++#endif /* DM_RTC */
++
++#if CONFIG_IS_ENABLED(DM_RTC)
+ static int h_read_settings_cmos(struct scene_obj *obj, void *vpriv)
+ {
+ 	struct cedit_iter_priv *priv = vpriv;
+@@ -886,3 +890,4 @@ done:
+ 	free(priv.value);
+ 	return ret;
+ }
++#endif /* DM_RTC */
+diff --git a/cmd/cedit.c b/cmd/cedit.c
+index 20f48ae0007..eeb10e48c29 100644
+--- a/cmd/cedit.c
++++ b/cmd/cedit.c
+@@ -198,6 +198,7 @@ static int do_cedit_read_env(struct cmd_tbl *cmdtp, int flag, int argc,
+ 	return 0;
+ }
+ 
++#if CONFIG_IS_ENABLED(DM_RTC)
+ static int do_cedit_write_cmos(struct cmd_tbl *cmdtp, int flag, int argc,
+ 			       char *const argv[])
+ {
+@@ -264,6 +265,7 @@ static int do_cedit_read_cmos(struct cmd_tbl *cmdtp, int flag, int argc,
+ 
+ 	return 0;
+ }
++#endif /* DM_RTC */
+ 
+ static int do_cedit_run(struct cmd_tbl *cmdtp, int flag, int argc,
+ 			char *const argv[])
+@@ -302,8 +304,10 @@ U_BOOT_LONGHELP(cedit,
+ 	"cedit write_fdt <i/f> <dev[:part]> <filename>    - write settings\n"
+ 	"cedit read_env [-v]                              - read settings from env vars\n"
+ 	"cedit write_env [-v]                             - write settings to env vars\n"
++#if CONFIG_IS_ENABLED(DM_RTC)
+ 	"cedit read_cmos [-v] [dev]                       - read settings from CMOS RAM\n"
+ 	"cedit write_cmos [-v] [dev]                      - write settings to CMOS RAM\n"
++#endif
+ 	"cedit run                                        - run config editor");
+ 
+ U_BOOT_CMD_WITH_SUBCMDS(cedit, "Configuration editor", cedit_help_text,
+@@ -315,7 +319,9 @@ U_BOOT_CMD_WITH_SUBCMDS(cedit, "Configuration editor", cedit_help_text,
+ 	U_BOOT_SUBCMD_MKENT(write_fdt, 5, 1, do_cedit_write_fdt),
+ 	U_BOOT_SUBCMD_MKENT(read_env, 2, 1, do_cedit_read_env),
+ 	U_BOOT_SUBCMD_MKENT(write_env, 2, 1, do_cedit_write_env),
++#if CONFIG_IS_ENABLED(DM_RTC)
+ 	U_BOOT_SUBCMD_MKENT(read_cmos, 2, 1, do_cedit_read_cmos),
+ 	U_BOOT_SUBCMD_MKENT(write_cmos, 2, 1, do_cedit_write_cmos),
++#endif
+ 	U_BOOT_SUBCMD_MKENT(run, 1, 1, do_cedit_run),
+ );
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
-index 69e8e72c5d7..1851fe09627 100644
+index 69e8e72c5d7..f75416120b4 100644
 --- a/configs/rpi_arm64_defconfig
 +++ b/configs/rpi_arm64_defconfig
 @@ -4,7 +4,7 @@ CONFIG_ARCH_BCM283X=y
@@ -491,7 +571,7 @@ index 69e8e72c5d7..1851fe09627 100644
  CONFIG_SYS_PBSIZE=1049
  # CONFIG_DISPLAY_CPUINFO is not set
  # CONFIG_DISPLAY_BOARDINFO is not set
-@@ -65,3 +65,29 @@ CONFIG_VIDEO_BCM2835=y
+@@ -65,3 +65,38 @@ CONFIG_VIDEO_BCM2835=y
  CONFIG_CONSOLE_SCROLL_LINES=10
  CONFIG_PHYS_TO_BUS=y
  # CONFIG_HEXDUMP is not set
@@ -521,6 +601,15 @@ index 69e8e72c5d7..1851fe09627 100644
 +CONFIG_PXE_UTILS=n
 +# Disable EFI bootmanager (reserves memory on 0x00080000 -> prevents continuing after being successful)
 +CONFIG_CMD_BOOTEFI_BOOTMGR=n
++# Expo Menu
++CONFIG_BOOTSTD_FULL=y
++CONFIG_BOOTSTD_BOOTCOMMAND=y
++CONFIG_EXPO=y
++CONFIG_BOOTSTD_MENU=y
++CONFIG_CEDIT=y
++CONFIG_CMD_BOOTMENU=y
++CONFIG_CMD_BOOTFLOW_FULL=y
++CONFIG_AUTOBOOT_MENU_SHOW=y
 diff --git a/drivers/clk/Kconfig b/drivers/clk/Kconfig
 index c88931c8ec4..4451a657386 100644
 --- a/drivers/clk/Kconfig
@@ -3868,6 +3957,25 @@ index 00000000000..3508b40fa9c
 +#define RPI_BOARD_TYPE_RPI5_FAMILY_MAX	BCM2712_CM5_LITE
 +
 +#endif /* _BCM_BOARD_TYPES_H_ */
+diff --git a/include/cedit.h b/include/cedit.h
+index 319a61aecb8..1368e038e54 100644
+--- a/include/cedit.h
++++ b/include/cedit.h
+@@ -114,6 +114,7 @@ int cedit_write_settings_env(struct expo *exp, bool verbose);
+  */
+ int cedit_read_settings_env(struct expo *exp, bool verbose);
+ 
++#if CONFIG_IS_ENABLED(DM_RTC)
+ /**
+  * cedit_write_settings_cmos() - Write settings to CMOS RAM
+  *
+@@ -138,5 +139,6 @@ int cedit_write_settings_cmos(struct expo *exp, struct udevice *dev,
+  */
+ int cedit_read_settings_cmos(struct expo *exp, struct udevice *dev,
+ 			     bool verbose);
++#endif /* DM_RTC */
+ 
+ #endif /* __CEDIT_H */
 diff --git a/include/dt-bindings/mfd/rp1.h b/include/dt-bindings/mfd/rp1.h
 new file mode 100644
 index 00000000000..80bbfd61b27

@@ -138,7 +138,7 @@ jobs:
           echo "CONFIG_BOOTSTD_BOOTCOMMAND=y" >> .config
           echo "CONFIG_EXPO=y" >> .config
           echo "CONFIG_BOOTSTD_MENU=y" >> .config
-          # echo "CONFIG_CEDIT=y" >> .config
+          echo "CONFIG_CEDIT=y" >> .config
           echo "CONFIG_CMD_BOOTMENU=y" >> .config
           echo "CONFIG_CMD_BOOTFLOW_FULL=y" >> .config
           echo "CONFIG_AUTOBOOT_MENU_SHOW=y" >> .config
