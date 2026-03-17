@@ -131,18 +131,6 @@ jobs:
           echo "CONFIG_GENERATE_SMBIOS_TABLE=y" >> .config
           echo "CONFIG_CMD_SMBIOS=y" >> .config
 
-      - name: Configure Expo Menu
-        working-directory: u-boot
-        run: |
-          echo "CONFIG_BOOTSTD_FULL=y" >> .config
-          echo "CONFIG_BOOTSTD_BOOTCOMMAND=y" >> .config
-          echo "CONFIG_EXPO=y" >> .config
-          echo "CONFIG_BOOTSTD_MENU=y" >> .config
-          echo "CONFIG_CEDIT=y" >> .config
-          echo "CONFIG_CMD_BOOTMENU=y" >> .config
-          echo "CONFIG_CMD_BOOTFLOW_FULL=y" >> .config
-          echo "CONFIG_AUTOBOOT_MENU_SHOW=y" >> .config
-
       - name: Build U-Boot
         working-directory: u-boot
         run: |
@@ -364,9 +352,13 @@ jobs:
             patch -p1 < "$patch" || (echo "Failed to apply patch $patch" && exit 1)
           done
 
+          # Copy custom overlay DTS files into the kernel source tree
+          mkdir -p arch/arm/boot/dts/overlays/
+          cp -av src/patches/dtb/overlays/* arch/arm/boot/dts/overlays/
+
       - name: Build device tree binaries
         run: |
-          mkdir -p out
+          mkdir -p out out/overlays
 
           export DTC_FLAGS="-R 4 -p 0x1000 -@ -H epapr"
           for dts in arch/arm64/boot/dts/broadcom/bcm27*.dts; do
@@ -386,11 +378,32 @@ jobs:
             exit 1
           fi
 
+          export DTC_FLAGS="-R 0 -p 0 -@ -H epapr"
+          for dts in arch/arm/boot/dts/overlays/*.dts; do
+            # disable-v3d-overlay.dts -> disable-v3d
+            target=$(basename "${dts%*.dts}")
+            target="${target%-overlay}"
+            echo "Building $target.dtbo"
+            cpp -nostdinc -I include -I arch -undef -x assembler-with-cpp \
+              -I scripts/dtc/include-prefixes/ -D__DTS__ -DFIRMWARE_UPDATED \
+              -P "$dts" -o "out/overlays/$target.dts"
+            dtc -O dtb $DTC_FLAGS -o "out/overlays/$target.dtbo" "out/overlays/$target.dts"
+          done
+
+          # Match the names firmware wants
+          [ -f out/overlays/hat_map.dtbo ] && mv out/overlays/hat_map.dtbo out/overlays/hat_map.dtb
+          [ -f out/overlays/overlay_map.dtbo ] && mv out/overlays/overlay_map.dtbo out/overlays/overlay_map.dtb
+
+          echo "Built overlay files:"
+          ls -lah out/overlays/
+
       - name: Upload kernel device tree files
         uses: actions/upload-artifact@v4
         with:
           name: kernel-dts
-          path: out/*.dtb
+          path: |
+            out/*.dtb
+            out/overlays/
           retention-days: 1
           if-no-files-found: error
 
@@ -450,9 +463,13 @@ jobs:
           # Copy patched Raspberry Pi kernel device tree files (bcm2712*)
           # Built from raspberrypi/linux with upstream-compatibility patches applied
           echo "Copying patched kernel device tree files..."
-          cp artifacts/kernel-dts/* build/
+          cp artifacts/kernel-dts/*.dtb build/
+          mkdir -p build/overlays
+          cp -r artifacts/kernel-dts/overlays/. build/overlays/
           echo "Kernel DTB files:"
           ls -lah build/bcm2712*
+          echo "Overlay files:"
+          ls -lah build/overlays/
 
           # Copy iPXE binary
           mkdir -p build/EFI/BOOT
