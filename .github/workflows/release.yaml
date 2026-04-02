@@ -418,6 +418,8 @@ jobs:
     outputs:
       image_name: ${{ steps.create_image.outputs.image_name }}
       image_size: ${{ steps.create_image.outputs.image_size }}
+      iso_name: ${{ steps.create_iso.outputs.iso_name }}
+      iso_size: ${{ steps.create_iso.outputs.iso_size }}
       release_version: ${{ needs.determine-version.outputs.release_version }}
 
     steps:
@@ -429,7 +431,7 @@ jobs:
       - name: Cache and install build dependencies
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
-          packages: dosfstools parted xz-utils
+          packages: dosfstools parted xz-utils genisoimage
           version: 1.0
 
       - name: Prepare build directory
@@ -532,15 +534,36 @@ jobs:
 
           ls -lh "$IMAGE_NAME"*
 
-      - name: Compress image
+      - name: Create ISO image
+        id: create_iso
+        working-directory: out
+        env:
+          RELEASE_VERSION: ${{ needs.determine-version.outputs.release_version }}
+        run: |
+          ISO_NAME="uboot-raspberrypi-${RELEASE_VERSION}.iso"
+
+          genisoimage \
+            -o "$ISO_NAME" \
+            -V "UBOOT_RPI" \
+            -R -J \
+            -joliet-long \
+            ../build
+
+          sha256sum "$ISO_NAME" > "${ISO_NAME}.sha256"
+
+          ISO_SIZE_BYTES=$(stat -c%s "$ISO_NAME")
+          echo "iso_name=$ISO_NAME" >> $GITHUB_OUTPUT
+          echo "iso_size=$ISO_SIZE_BYTES" >> $GITHUB_OUTPUT
+
+          ls -lh "$ISO_NAME"*
+
+      - name: Compress SD card image
         working-directory: out
         env:
           IMAGE_NAME: ${{ steps.create_image.outputs.image_name }}
         run: |
-          echo "Compressing image..."
+          echo "Compressing SD card image..."
           xz -9 -T 0 "${IMAGE_NAME}"
-
-          # Update checksum for compressed file
           sha256sum "${IMAGE_NAME}.xz" > "${IMAGE_NAME}.xz.sha256"
 
       - name: Create release notes
@@ -650,6 +673,8 @@ jobs:
           path: |
             out/${{ steps.create_image.outputs.image_name }}.xz
             out/${{ steps.create_image.outputs.image_name }}.xz.sha256
+            out/${{ steps.create_iso.outputs.iso_name }}
+            out/${{ steps.create_iso.outputs.iso_name }}.sha256
             out/release_notes.md
           retention-days: 30
 
@@ -658,8 +683,10 @@ jobs:
           RELEASE_VERSION: ${{ needs.determine-version.outputs.release_version }}
         run: |
           echo "✅ U-Boot SD card image created successfully"
-          echo "📦 Image: ${{ steps.create_image.outputs.image_name }}.xz"
-          echo "📏 Uncompressed size: ${{ steps.create_image.outputs.image_size }} bytes"
+          echo "📦 SD Image: ${{ steps.create_image.outputs.image_name }}.xz"
+          echo "📏 SD Uncompressed size: ${{ steps.create_image.outputs.image_size }} bytes"
+          echo "📦 ISO Image: ${{ steps.create_iso.outputs.iso_name }}"
+          echo "📏 ISO Uncompressed size: ${{ steps.create_iso.outputs.iso_size }} bytes"
           echo "🔖 U-Boot version: ${{ env.UBOOT_VERSION }}"
           echo "🔖 Release version: ${RELEASE_VERSION}"
           echo "🔖 Firmware version: ${{ env.RPI_FIRMWARE_VERSION }}"
@@ -688,6 +715,8 @@ jobs:
           files: |
             artifacts/${{ needs.build-image.outputs.image_name }}.xz
             artifacts/${{ needs.build-image.outputs.image_name }}.xz.sha256
+            artifacts/${{ needs.build-image.outputs.iso_name }}
+            artifacts/${{ needs.build-image.outputs.iso_name }}.sha256
           draft: false
           prerelease: false
         env:
@@ -749,6 +778,8 @@ jobs:
             --artifact-type application/vnd.tinkerbell.uboot.image.v1 \
             ${{ needs.build-image.outputs.image_name }}.xz:application/octet-stream \
             ${{ needs.build-image.outputs.image_name }}.xz.sha256:text/plain \
+            ${{ needs.build-image.outputs.iso_name }}:application/octet-stream \
+            ${{ needs.build-image.outputs.iso_name }}.sha256:text/plain \
             release_notes.md:text/markdown
 
           echo "✅ Published to ${IMAGE_BASE}:${VERSION}"
