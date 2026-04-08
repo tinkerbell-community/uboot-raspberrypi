@@ -343,7 +343,7 @@ jobs:
           # blkmap in PREBOOT maps it as 32768 blocks — keep in sync with defconfig PREBOOT.
           IMG=initrd.img
           dd if=/dev/zero of="$IMG" bs=1M count=16
-          mkfs.vfat -F 16 -n "UBOOT_INITRD" "$IMG"
+          mkfs.vfat -F 16 -n "UBOOT_INIT" "$IMG"
 
           # Place iPXE at the standard EFI path
           mmd -i "$IMG" ::EFI
