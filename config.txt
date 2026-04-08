@@ -40,3 +40,6 @@ dtoverlay=dwc2,dr_mode=host
 enable_uart=0
 
 [all]
+# Load iPXE + default U-Boot env from in-RAM FAT image.
+# U-Boot maps this as a blkmap virtual block device and boots EFI/BOOT/BOOTAA64.EFI.
+initramfs initrd.img followkernel

@@ -321,6 +321,60 @@ jobs:
           overwrite: true
           if-no-files-found: error
 
+  build-initrd:
+    needs: build-ipxe-arm64
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Download iPXE binary
+        uses: actions/download-artifact@v4
+        with:
+          name: ipxe-arm64-binary
+          path: ipxe
+
+      - name: Install dependencies
+        run: sudo apt-get update -q && sudo apt-get install -y dosfstools u-boot-tools
+
+      - name: Build initrd.img (FAT image with EFI binary + uboot.env)
+        run: |
+          # Fixed 16 MiB FAT image (32768 sectors × 512 bytes).
+          # blkmap in PREBOOT maps it as 32768 blocks — keep in sync with defconfig PREBOOT.
+          IMG=initrd.img
+          dd if=/dev/zero of="$IMG" bs=1M count=16
+          mkfs.vfat -F 16 -n "UBOOT_INITRD" "$IMG"
+
+          # Place iPXE at the standard EFI path
+          mmd -i "$IMG" ::EFI
+          mmd -i "$IMG" ::EFI/BOOT
+          mcopy -i "$IMG" ipxe/snp.efi ::EFI/BOOT/BOOTAA64.EFI
+
+          # Create default U-Boot environment (16 KiB = CONFIG_ENV_SIZE=0x4000)
+          cat > uboot.env.txt << 'EOF'
+          serial#=
+          bootdelay=3
+          boot_targets=ramdisk mmc nvme usb pxe dhcp
+          bootcmd=bootflow scan
+          EOF
+          # Strip leading whitespace from heredoc
+          sed -i 's/^[[:space:]]*//' uboot.env.txt
+          mkenvimage -s 0x4000 -o uboot.env uboot.env.txt
+          mcopy -i "$IMG" uboot.env ::uboot.env
+
+          echo "initrd.img contents:"
+          mdir -i "$IMG" -/ ::
+          ls -lah "$IMG"
+
+      - name: Upload initrd
+        uses: actions/upload-artifact@v4
+        with:
+          name: initrd-image
+          path: initrd.img
+          retention-days: 1
+          overwrite: true
+          if-no-files-found: error
+
   build-kernel-dtbs:
     needs: determine-version
     runs-on: ubuntu-24.04-arm
@@ -414,7 +468,7 @@ jobs:
           if-no-files-found: error
 
   build-image:
-    needs: [determine-version, build-uboot, checkout-firmware, build-ipxe-arm64, prepare-config, build-kernel-dtbs]
+    needs: [determine-version, build-uboot, checkout-firmware, build-ipxe-arm64, prepare-config, build-kernel-dtbs, build-initrd]
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: write
@@ -482,6 +536,10 @@ jobs:
           # Copy iPXE binary
           mkdir -p build/EFI/BOOT
           cp artifacts/ipxe-arm64-binary/snp.efi build/EFI/BOOT/BOOTAA64.EFI
+
+          # Copy initrd.img (FAT image with EFI/BOOT/BOOTAA64.EFI + uboot.env)
+          # U-Boot maps this as blkmap device 'ramdisk' via PREBOOT and boots from it.
+          cp artifacts/initrd-image/initrd.img build/initrd.img
 
           echo "Build directory contents:"
           ls -lah build/

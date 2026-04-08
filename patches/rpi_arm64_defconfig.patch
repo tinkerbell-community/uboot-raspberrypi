@@ -484,9 +484,9 @@ index 9ac9d6768ca..f879df109ac 100644
  ramdisk_addr_r=0x05700000
  
 -boot_targets=mmc usb pxe dhcp
-+boot_targets=mmc nvme usb pxe dhcp
++boot_targets=ramdisk mmc nvme usb pxe dhcp
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
-index 69e8e72c5d7..49aab50233c 100644
+index 69e8e72c5d7..ee84d35f120 100644
 --- a/configs/rpi_arm64_defconfig
 +++ b/configs/rpi_arm64_defconfig
 @@ -4,7 +4,7 @@ CONFIG_ARCH_BCM283X=y
@@ -503,11 +503,11 @@ index 69e8e72c5d7..49aab50233c 100644
  CONFIG_FDT_SIMPLEFB=y
  CONFIG_USE_PREBOOT=y
 -CONFIG_PREBOOT="pci enum; usb start;"
-+CONFIG_PREBOOT="pci enum; nvme scan; usb start;"
++CONFIG_PREBOOT="pci enum; nvme scan; usb start; blkmap create ramdisk; blkmap map ramdisk 0 32768 mem ${ramdisk_addr_r}"
  CONFIG_SYS_PBSIZE=1049
  # CONFIG_DISPLAY_CPUINFO is not set
  # CONFIG_DISPLAY_BOARDINFO is not set
-@@ -65,3 +65,37 @@ CONFIG_VIDEO_BCM2835=y
+@@ -65,3 +65,38 @@ CONFIG_VIDEO_BCM2835=y
  CONFIG_CONSOLE_SCROLL_LINES=10
  CONFIG_PHYS_TO_BUS=y
  # CONFIG_HEXDUMP is not set
@@ -545,6 +545,10 @@ index 69e8e72c5d7..49aab50233c 100644
 +CONFIG_CMD_BOOTMENU=y
 +CONFIG_CMD_BOOTFLOW_FULL=y
 +CONFIG_AUTOBOOT_MENU_SHOW=y
++CONFIG_EFI_LOAD_FILE2_INITRD=y
++# Blkmap: expose in-RAM FAT image (initrd.img) as a virtual block device
++CONFIG_BLKMAP=y
++CONFIG_CMD_BLKMAP=y
 diff --git a/drivers/clk/Kconfig b/drivers/clk/Kconfig
 index c2da7b3938b..fa4bd11645f 100644
 --- a/drivers/clk/Kconfig
