@@ -1,8 +1,8 @@
 diff --git a/arch/arm/dts/Makefile b/arch/arm/dts/Makefile
-index 82ad3035308..5d97c94cbec 100644
+index 4085d4c2de1..388aa5042f7 100644
 --- a/arch/arm/dts/Makefile
 +++ b/arch/arm/dts/Makefile
-@@ -1025,7 +1025,9 @@ dtb-$(CONFIG_ARCH_BCM283X) += \
+@@ -1016,7 +1016,9 @@ dtb-$(CONFIG_ARCH_BCM283X) += \
  	bcm2837-rpi-3-b.dtb \
  	bcm2837-rpi-3-b-plus.dtb \
  	bcm2837-rpi-cm3-io3.dtb \
@@ -13,51 +13,54 @@ index 82ad3035308..5d97c94cbec 100644
  
  dtb-$(CONFIG_TARGET_BCMNS) += ns-board.dtb
  
-diff --git a/arch/arm/dts/bcm2711-rpi-4-b.dts b/arch/arm/dts/bcm2711-rpi-4-b.dts
-index 72ce80fbf26..a73bf3e0c2f 100644
---- a/arch/arm/dts/bcm2711-rpi-4-b.dts
-+++ b/arch/arm/dts/bcm2711-rpi-4-b.dts
-@@ -2,7 +2,7 @@
- /dts-v1/;
- #include "bcm2711.dtsi"
- #include "bcm2711-rpi.dtsi"
--#include "bcm283x-rpi-usb-peripheral.dtsi"
-+#include "bcm283x-rpi-usb-host.dtsi"
- 
- / {
- 	compatible = "raspberrypi,4-model-b", "brcm,bcm2711";
 diff --git a/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi b/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi
 new file mode 100644
-index 00000000000..33d56530c2f
+index 00000000000..36b30a72172
 --- /dev/null
 +++ b/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi
-@@ -0,0 +1,85 @@
+@@ -0,0 +1,101 @@
 +/* * PCIe DMA Override
-+ * U-Boot's dm_pci_bus_to_phys() cannot parse the upstream dma-ranges which use
-+ * 0x02000000/0x03000000 (non-prefetchable) type flags with multi-entry mappings.
-+ * Replace with a single 64-bit prefetchable pass-through (0x43000000) that maps
-+ * PCI address 0x0 → CPU physical 0x0 for 16 GiB.  This covers all system RAM.
-+ * The upstream entries are preserved in bcm2712.dtsi for Linux compatibility;
-+ * this override only affects the U-Boot-compiled DTB.
++ *
++ * U-Boot's dm_pci_bus_to_phys() cannot parse the upstream dma-ranges which
++ * mix 0x02000000 / 0x03000000 (non-prefetchable) type flags with multiple
++ * entries.  Replace with a single 64-bit prefetchable (0x43000000) entry.
++ *
++ * Upstream maps PCIe address 0x10_0000_0000 → CPU physical 0x0 for 64 GiB
++ * on all three controllers.  We keep that same translation but unify the
++ * type flag to 0x43000000 and drop the secondary MIP / BAR entries that
++ * U-Boot does not need.
++ *
++ * pcie1: upstream has 0x03000000 (non-pref) + MIP1 → single 0x43000000
++ * pcie2: upstream has 0x02000000 + 0x43000000 + MIP0 → single 0x43000000
 + */
 +&pcie1 {
-+    dma-ranges = <0x43000000 0x0 0x00000000  0x0 0x00000000  0x4 0x00000000>;
++    dma-ranges = <0x43000000 0x10 0x00000000  0x0 0x00000000  0x10 0x00000000>;
 +};
 +
-+&pcie2 {
-+    dma-ranges = <0x43000000 0x0 0x00000000  0x0 0x00000000  0x4 0x00000000>;
-+};
-+
-+/* * 2. RP1 Southbridge Node 
-+ * This bridges the internal RP1 bus to the external PCIe link.
++/* * RP1 Southbridge — PCIe2 overrides
++ *
++ * The RP1 south bridge sits behind pcie2 as a PCI endpoint (dev@0,0)
++ * inside a virtual PCI-PCI bridge (pci@0,0).
++ *
++ * DMA path: RP1 peripheral → pci_ep_bus dma-ranges (bus 0x10_0000_0000
++ * → PCIe 0x10_0000_0000) → dev@0,0 (passthrough, no dma-ranges) →
++ * pci@0,0 (passthrough) → pcie2 dma-ranges (PCIe 0x10_0000_0000 →
++ * CPU 0x0).  We must NOT add dma-ranges to dev@0,0 — upstream omits
++ * them intentionally so addresses pass through unchanged.
++ *
++ * bootph-all on pci@0,0 and dev@0,0 ensures U-Boot's driver model
++ * probes through the full PCIe → PCI bridge → RP1 chain.
 + */
-+&rp1_nexus {
-+    bootph-all;
-+    
-+    /* * Pass-through DMA Ranges.
-+     * This tells U-Boot: "Addresses on the RP1 internal bus map 1:1 to the PCIe bus."
-+     */
-+    dma-ranges = <0x43000000 0x0 0x00000000  0x43000000 0x0 0x00000000  0x4 0x00000000>;
++&pcie2 {
++    dma-ranges = <0x43000000 0x10 0x00000000  0x0 0x00000000  0x10 0x00000000>;
++
++    pci@0,0 {
++        bootph-all;
++
++        dev@0,0 {
++            bootph-all;
++        };
++    };
 +};
 +
 +/* * 3. RP1 Peripheral Aliases 
@@ -118,6 +121,35 @@ index 00000000000..33d56530c2f
 +    };
 +};
 \ No newline at end of file
+diff --git a/arch/arm/dts/bcm283x-u-boot.dtsi b/arch/arm/dts/bcm283x-u-boot.dtsi
+index ec0f93dd850..30260fa5269 100644
+--- a/arch/arm/dts/bcm283x-u-boot.dtsi
++++ b/arch/arm/dts/bcm283x-u-boot.dtsi
+@@ -27,3 +27,24 @@
+ &uart1_gpio14 {
+ 	bootph-all;
+ };
++
++/ {
++	smbios {
++		compatible = "u-boot,sysinfo-smbios";
++
++		smbios {
++			system {
++				manufacturer = "Raspberry Pi";
++				family = "Raspberry Pi";
++			};
++
++			baseboard {
++				manufacturer = "Raspberry Pi";
++			};
++
++			chassis {
++				manufacturer = "Raspberry Pi";
++			};
++		};
++	};
++};
 diff --git a/arch/arm/mach-bcm283x/Kconfig b/arch/arm/mach-bcm283x/Kconfig
 index d9303e8c281..861d0d9a1b5 100644
 --- a/arch/arm/mach-bcm283x/Kconfig
@@ -290,7 +322,7 @@ index 7a1de22e0ae..97a6b9aa5b3 100644
  		.phys = 0x107c000000UL,
  		.size = 0x0004000000UL,
 diff --git a/board/raspberrypi/rpi/rpi.c b/board/raspberrypi/rpi/rpi.c
-index 7f69e5b6163..975bcfd4af8 100644
+index b0a1484c0fa..db888098034 100644
 --- a/board/raspberrypi/rpi/rpi.c
 +++ b/board/raspberrypi/rpi/rpi.c
 @@ -20,12 +20,15 @@
@@ -453,88 +485,8 @@ index 9ac9d6768ca..f879df109ac 100644
  
 -boot_targets=mmc usb pxe dhcp
 +boot_targets=mmc nvme usb pxe dhcp
-diff --git a/boot/Kconfig b/boot/Kconfig
-index e5db165424a..6d624d87b90 100644
---- a/boot/Kconfig
-+++ b/boot/Kconfig
-@@ -2038,6 +2038,7 @@ menu "Configuration editor"
- config CEDIT
- 	bool "Configuration editor"
- 	depends on EXPO
-+	select OFNODE_MULTI_TREE
- 	help
- 	  Provides a way to deal with board configuration and present it to
- 	  the user for adjustment.
-diff --git a/boot/cedit.c b/boot/cedit.c
-index 56dc7c6af15..9c1877254b3 100644
---- a/boot/cedit.c
-+++ b/boot/cedit.c
-@@ -700,6 +700,7 @@ int cedit_read_settings_env(struct expo *exp, bool verbose)
- 	return 0;
- }
- 
-+#if CONFIG_IS_ENABLED(DM_RTC)
- static int h_write_settings_cmos(struct scene_obj *obj, void *vpriv)
- {
- 	const struct scene_obj_menu *menu;
-@@ -789,6 +790,9 @@ done:
- 	return ret;
- }
- 
-+#endif /* DM_RTC */
-+
-+#if CONFIG_IS_ENABLED(DM_RTC)
- static int h_read_settings_cmos(struct scene_obj *obj, void *vpriv)
- {
- 	struct cedit_iter_priv *priv = vpriv;
-@@ -886,3 +890,4 @@ done:
- 	free(priv.value);
- 	return ret;
- }
-+#endif /* DM_RTC */
-diff --git a/cmd/cedit.c b/cmd/cedit.c
-index 20f48ae0007..eeb10e48c29 100644
---- a/cmd/cedit.c
-+++ b/cmd/cedit.c
-@@ -198,6 +198,7 @@ static int do_cedit_read_env(struct cmd_tbl *cmdtp, int flag, int argc,
- 	return 0;
- }
- 
-+#if CONFIG_IS_ENABLED(DM_RTC)
- static int do_cedit_write_cmos(struct cmd_tbl *cmdtp, int flag, int argc,
- 			       char *const argv[])
- {
-@@ -264,6 +265,7 @@ static int do_cedit_read_cmos(struct cmd_tbl *cmdtp, int flag, int argc,
- 
- 	return 0;
- }
-+#endif /* DM_RTC */
- 
- static int do_cedit_run(struct cmd_tbl *cmdtp, int flag, int argc,
- 			char *const argv[])
-@@ -302,8 +304,10 @@ U_BOOT_LONGHELP(cedit,
- 	"cedit write_fdt <i/f> <dev[:part]> <filename>    - write settings\n"
- 	"cedit read_env [-v]                              - read settings from env vars\n"
- 	"cedit write_env [-v]                             - write settings to env vars\n"
-+#if CONFIG_IS_ENABLED(DM_RTC)
- 	"cedit read_cmos [-v] [dev]                       - read settings from CMOS RAM\n"
- 	"cedit write_cmos [-v] [dev]                      - write settings to CMOS RAM\n"
-+#endif
- 	"cedit run                                        - run config editor");
- 
- U_BOOT_CMD_WITH_SUBCMDS(cedit, "Configuration editor", cedit_help_text,
-@@ -315,7 +319,9 @@ U_BOOT_CMD_WITH_SUBCMDS(cedit, "Configuration editor", cedit_help_text,
- 	U_BOOT_SUBCMD_MKENT(write_fdt, 5, 1, do_cedit_write_fdt),
- 	U_BOOT_SUBCMD_MKENT(read_env, 2, 1, do_cedit_read_env),
- 	U_BOOT_SUBCMD_MKENT(write_env, 2, 1, do_cedit_write_env),
-+#if CONFIG_IS_ENABLED(DM_RTC)
- 	U_BOOT_SUBCMD_MKENT(read_cmos, 2, 1, do_cedit_read_cmos),
- 	U_BOOT_SUBCMD_MKENT(write_cmos, 2, 1, do_cedit_write_cmos),
-+#endif
- 	U_BOOT_SUBCMD_MKENT(run, 1, 1, do_cedit_run),
- );
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
-index 69e8e72c5d7..a297e37f590 100644
+index 69e8e72c5d7..49aab50233c 100644
 --- a/configs/rpi_arm64_defconfig
 +++ b/configs/rpi_arm64_defconfig
 @@ -4,7 +4,7 @@ CONFIG_ARCH_BCM283X=y
@@ -555,25 +507,7 @@ index 69e8e72c5d7..a297e37f590 100644
  CONFIG_SYS_PBSIZE=1049
  # CONFIG_DISPLAY_CPUINFO is not set
  # CONFIG_DISPLAY_BOARDINFO is not set
-@@ -57,6 +57,17 @@ CONFIG_USB_KEYBOARD=y
- CONFIG_USB_HOST_ETHER=y
- CONFIG_USB_ETHER_LAN78XX=y
- CONFIG_USB_ETHER_SMSC95XX=y
-+# USB Gadget support (USB-C port, active on RPi 4 via DWC2 peripheral mode)
-+CONFIG_DM_USB_GADGET=y
-+CONFIG_USB_GADGET=y
-+CONFIG_USB_GADGET_VENDOR_NUM=0x0525
-+CONFIG_USB_GADGET_PRODUCT_NUM=0xa4a5
-+CONFIG_USB_GADGET_DWC2_OTG=y
-+CONFIG_USB_GADGET_DOWNLOAD=y
-+CONFIG_USB_FUNCTION_MASS_STORAGE=y
-+CONFIG_USB_ETHER=y
-+CONFIG_USB_ETH_CDC=y
-+CONFIG_USB_ETH_RNDIS=y
- CONFIG_VIDEO=y
- # CONFIG_VIDEO_BPP8 is not set
- # CONFIG_VIDEO_BPP16 is not set
-@@ -65,3 +76,38 @@ CONFIG_VIDEO_BCM2835=y
+@@ -65,3 +65,37 @@ CONFIG_VIDEO_BCM2835=y
  CONFIG_CONSOLE_SCROLL_LINES=10
  CONFIG_PHYS_TO_BUS=y
  # CONFIG_HEXDUMP is not set
@@ -608,12 +542,11 @@ index 69e8e72c5d7..a297e37f590 100644
 +CONFIG_BOOTSTD_BOOTCOMMAND=y
 +CONFIG_EXPO=y
 +CONFIG_BOOTSTD_MENU=y
-+CONFIG_CEDIT=y
 +CONFIG_CMD_BOOTMENU=y
 +CONFIG_CMD_BOOTFLOW_FULL=y
 +CONFIG_AUTOBOOT_MENU_SHOW=y
 diff --git a/drivers/clk/Kconfig b/drivers/clk/Kconfig
-index c88931c8ec4..4451a657386 100644
+index c2da7b3938b..fa4bd11645f 100644
 --- a/drivers/clk/Kconfig
 +++ b/drivers/clk/Kconfig
 @@ -67,6 +67,13 @@ config CLK_BOSTON
@@ -968,10 +901,10 @@ index fa893485a09..13f3ca15998 100644
  	return addr.phys_hi & 0xff00;
  }
 diff --git a/drivers/gpio/Kconfig b/drivers/gpio/Kconfig
-index 60c5c54688e..57ca4194828 100644
+index 1484dd3504c..84fcae32be2 100644
 --- a/drivers/gpio/Kconfig
 +++ b/drivers/gpio/Kconfig
-@@ -404,6 +404,14 @@ config RCAR_GPIO
+@@ -413,6 +413,14 @@ config RCAR_GPIO
  	help
  	  This driver supports the GPIO banks on Renesas R-Car SoCs.
  
@@ -987,10 +920,10 @@ index 60c5c54688e..57ca4194828 100644
  	bool "Renesas RZ/A1 GPIO driver"
  	depends on DM_GPIO && RZA1
 diff --git a/drivers/gpio/Makefile b/drivers/gpio/Makefile
-index 910478c0c7a..3ed6044b0f6 100644
+index fec258f59f5..bd5dca3c312 100644
 --- a/drivers/gpio/Makefile
 +++ b/drivers/gpio/Makefile
-@@ -34,6 +34,7 @@ obj-$(CONFIG_NPCM_SGPIO)	+= npcm_sgpio.o
+@@ -35,6 +35,7 @@ obj-$(CONFIG_NPCM_SGPIO)	+= npcm_sgpio.o
  obj-$(CONFIG_PCA953X)		+= pca953x.o
  obj-$(CONFIG_ROCKCHIP_GPIO)	+= rk_gpio.o
  obj-$(CONFIG_RCAR_GPIO)		+= gpio-rcar.o
@@ -1599,10 +1532,10 @@ index 00000000000..e6ebf383a9a
 +U_BOOT_PCI_DEVICE(rp1_driver, dev_id_table);
 \ No newline at end of file
 diff --git a/drivers/net/Kconfig b/drivers/net/Kconfig
-index fce8004e134..6c39c96aaeb 100644
+index ed07e286676..5d8b5be831f 100644
 --- a/drivers/net/Kconfig
 +++ b/drivers/net/Kconfig
-@@ -569,6 +569,10 @@ config MACB
+@@ -570,6 +570,10 @@ config MACB
  	bool "Cadence MACB/GEM Ethernet Interface"
  	depends on ARM || RISCV
  	select PHYLIB
@@ -3600,7 +3533,7 @@ index 00000000000..1f34d82fa83
 +	.flags = DM_FLAG_PRE_RELOC,
 +};
 diff --git a/drivers/reset/Kconfig b/drivers/reset/Kconfig
-index 2fd91d6299c..b7d2d4b18d5 100644
+index 66911199c8b..b4237bf98bf 100644
 --- a/drivers/reset/Kconfig
 +++ b/drivers/reset/Kconfig
 @@ -64,6 +64,20 @@ config RESET_BCM6345
@@ -3625,7 +3558,7 @@ index 2fd91d6299c..b7d2d4b18d5 100644
  	bool "Reset controller driver for UniPhier SoCs"
  	depends on ARCH_UNIPHIER
 diff --git a/drivers/reset/Makefile b/drivers/reset/Makefile
-index ee5b009d134..c7a9da3268d 100644
+index 088545c6473..c369bdb3d6c 100644
 --- a/drivers/reset/Makefile
 +++ b/drivers/reset/Makefile
 @@ -13,6 +13,8 @@ obj-$(CONFIG_RESET_AIROHA) += reset-airoha.o
@@ -3874,66 +3807,6 @@ index 0c81e606622..0e0cc1979eb 100644
  	{ .compatible = "brcm,bcm2708-fb" },
  #if !IS_ENABLED(CONFIG_VIDEO_DT_SIMPLEFB)
  	{ .compatible = "simple-framebuffer" },
-diff --git a/dts/upstream/src/arm/broadcom/bcm2711-rpi-4-b.dts b/dts/upstream/src/arm/broadcom/bcm2711-rpi-4-b.dts
-index 353bb50ce54..8aa70a4e4cd 100644
---- a/dts/upstream/src/arm/broadcom/bcm2711-rpi-4-b.dts
-+++ b/dts/upstream/src/arm/broadcom/bcm2711-rpi-4-b.dts
-@@ -3,7 +3,7 @@
- #include "bcm2711.dtsi"
- #include "bcm2711-rpi.dtsi"
- #include "bcm283x-rpi-led-deprecated.dtsi"
--#include "bcm283x-rpi-usb-peripheral.dtsi"
-+#include "bcm283x-rpi-usb-host.dtsi"
- #include "bcm283x-rpi-wifi-bt.dtsi"
- #include <dt-bindings/leds/common.h>
- 
-diff --git a/dts/upstream/src/arm64/broadcom/bcm2712.dtsi b/dts/upstream/src/arm64/broadcom/bcm2712.dtsi
-index 205b87f557d..d5e136f5482 100644
---- a/dts/upstream/src/arm64/broadcom/bcm2712.dtsi
-+++ b/dts/upstream/src/arm64/broadcom/bcm2712.dtsi
-@@ -604,8 +604,8 @@
- 				<0x43000000 0x04 0x00000000 0x1c 0x00000000 0x03 0x00000000>;
- 
- 			dma-ranges =
--				/* 4MiB, 32-bit, non-prefetchable at PCIe 00_0000_0000 */
--				<0x02000000 0x00 0x00000000 0x1f 0x00000000 0x00 0x00400000>,
-+				/* ~4MiB, 32-bit, non-prefetchable at PCIe 00_0000_0000 */
-+				<0x02000000 0x00 0x00000000 0x1f 0x00000000 0x00 0x00410000>,
- 				/* 64GiB, 64-bit, prefetchable at PCIe 10_0000_0000 */
- 				<0x43000000 0x10 0x00000000 0x00 0x00000000 0x10 0x00000000>,
- 				/* 4KiB, 64-bit, non-prefetchable at PCIe ff_ffff_f000 MIP0 */
-diff --git a/dts/upstream/src/arm64/broadcom/rp1-common.dtsi b/dts/upstream/src/arm64/broadcom/rp1-common.dtsi
-index 5a815c37979..ccf9bb30011 100644
---- a/dts/upstream/src/arm64/broadcom/rp1-common.dtsi
-+++ b/dts/upstream/src/arm64/broadcom/rp1-common.dtsi
-@@ -6,7 +6,7 @@
- 
- pci_ep_bus: pci-ep-bus@1 {
- 	compatible = "simple-bus";
--	ranges = <0x00 0x40000000  0x01 0x00 0x00000000  0x00 0x00400000>;
-+	ranges = <0x00 0x40000000  0x01 0x00 0x00000000  0x00 0x00410000>;
- 	dma-ranges = <0x10 0x00000000  0x43000000 0x10 0x00000000  0x10 0x00000000>;
- 	#address-cells = <2>;
- 	#size-cells = <2>;
-diff --git a/dts/upstream/src/arm64/broadcom/rp1-nexus.dtsi b/dts/upstream/src/arm64/broadcom/rp1-nexus.dtsi
-index 0ef30d7f1c3..53174b72763 100644
---- a/dts/upstream/src/arm64/broadcom/rp1-nexus.dtsi
-+++ b/dts/upstream/src/arm64/broadcom/rp1-nexus.dtsi
-@@ -1,12 +1,12 @@
- // SPDX-License-Identifier: (GPL-2.0 OR MIT)
- 
--rp1_nexus {
-+rp1_nexus: rp1_nexus {
- 	compatible = "pci1de4,1";
- 	#address-cells = <3>;
- 	#size-cells = <2>;
- 	ranges = <0x01 0x00 0x00000000
- 		  0x02000000 0x00 0x00000000
--		  0x0 0x400000>;
-+		  0x0 0x410000>;
- 	interrupt-controller;
- 	#interrupt-cells = <2>;
- 
 diff --git a/include/broadcom/bcm_board_types.h b/include/broadcom/bcm_board_types.h
 new file mode 100644
 index 00000000000..3508b40fa9c
@@ -3972,25 +3845,6 @@ index 00000000000..3508b40fa9c
 +#define RPI_BOARD_TYPE_RPI5_FAMILY_MAX	BCM2712_CM5_LITE
 +
 +#endif /* _BCM_BOARD_TYPES_H_ */
-diff --git a/include/cedit.h b/include/cedit.h
-index 319a61aecb8..1368e038e54 100644
---- a/include/cedit.h
-+++ b/include/cedit.h
-@@ -114,6 +114,7 @@ int cedit_write_settings_env(struct expo *exp, bool verbose);
-  */
- int cedit_read_settings_env(struct expo *exp, bool verbose);
- 
-+#if CONFIG_IS_ENABLED(DM_RTC)
- /**
-  * cedit_write_settings_cmos() - Write settings to CMOS RAM
-  *
-@@ -138,5 +139,6 @@ int cedit_write_settings_cmos(struct expo *exp, struct udevice *dev,
-  */
- int cedit_read_settings_cmos(struct expo *exp, struct udevice *dev,
- 			     bool verbose);
-+#endif /* DM_RTC */
- 
- #endif /* __CEDIT_H */
 diff --git a/include/dt-bindings/mfd/rp1.h b/include/dt-bindings/mfd/rp1.h
 new file mode 100644
 index 00000000000..80bbfd61b27

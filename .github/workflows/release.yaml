@@ -20,10 +20,10 @@ on:
       - 'v*'
 
 env:
-  UBOOT_VERSION: ${{ inputs.uboot_version || 'v2026.04-rc4' }}
+  UBOOT_VERSION: ${{ inputs.uboot_version || 'v2026.04' }}
   UBOOT_DIR: ${{ github.workspace }}/u-boot
   RPI_FIRMWARE_VERSION: ${{ inputs.rpi_firmware_version || 'next' }}
-  RPI_KERNEL_VERSION: ${{ inputs.rpi_kernel_version || 'stable_20250428' }}
+  RPI_KERNEL_VERSION: ${{ inputs.rpi_kernel_version || 'rpi-6.19.y' }}
 
 jobs:
   determine-version:
@@ -165,9 +165,9 @@ jobs:
         with:
           name: rpi-firmware
           path: |
-            firmware/boot/
-            !firmware/boot/kernel*
-            !firmware/boot/bcm27*
+            firmware/boot/*.elf
+            firmware/boot/*.dat
+            firmware/boot/*.bin
           retention-days: 1
           if-no-files-found: error
 
@@ -340,23 +340,29 @@ jobs:
           packages: build-essential cpp device-tree-compiler
           version: 1.0
 
-      - name: Download and patch Raspberry Pi kernel source
-        run: |
-          echo "Downloading raspberrypi/linux tag: ${{ env.RPI_KERNEL_VERSION }}"
-          curl -sL "https://github.com/raspberrypi/linux/archive/refs/tags/${{ env.RPI_KERNEL_VERSION }}.tar.gz" -o rpi-linux.tar.gz
-          tar xf rpi-linux.tar.gz --strip-components=1
-          rm rpi-linux.tar.gz
+      - name: Checkout rpi kernel
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: raspberrypi/linux
+          fetch-depth: 1
+          path: firmware
+          ref: ${{ env.RPI_KERNEL_VERSION }}
 
-          for patch in $(find src/patches/dtb -type f -name '*.patch' | sort); do
+      - name: Download and patch Raspberry Pi kernel source
+        working-directory: firmware
+        run: |
+          for patch in $(find ${{ github.workspace }}/src/patches/dtb -type f -name '*.patch' | sort); do
             echo "Applying patch $patch"
             patch -p1 < "$patch" || (echo "Failed to apply patch $patch" && exit 1)
           done
 
           # Copy custom overlay DTS files into the kernel source tree
           mkdir -p arch/arm/boot/dts/overlays/
-          cp -av src/patches/dtb/overlays/* arch/arm/boot/dts/overlays/
+          cp -av ${{ github.workspace }}/src/patches/dtb/overlays/* arch/arm/boot/dts/overlays/
 
       - name: Build device tree binaries
+        working-directory: firmware
         run: |
           mkdir -p out out/overlays
 
@@ -402,8 +408,8 @@ jobs:
         with:
           name: kernel-dts
           path: |
-            out/*.dtb
-            out/overlays/
+            firmware/out/*.dtb
+            firmware/out/overlays/
           retention-days: 1
           if-no-files-found: error
 
@@ -469,7 +475,7 @@ jobs:
           mkdir -p build/overlays
           cp -r artifacts/kernel-dts/overlays/. build/overlays/
           echo "Kernel DTB files:"
-          ls -lah build/bcm2712*
+          ls -lah build/bcm27*
           echo "Overlay files:"
           ls -lah build/overlays/
 
