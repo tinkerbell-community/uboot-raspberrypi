@@ -539,7 +539,7 @@ index 20f48ae0007..eeb10e48c29 100644
  	U_BOOT_SUBCMD_MKENT(run, 1, 1, do_cedit_run),
  );
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
-index 69e8e72c5d7..f75416120b4 100644
+index 69e8e72c5d7..a297e37f590 100644
 --- a/configs/rpi_arm64_defconfig
 +++ b/configs/rpi_arm64_defconfig
 @@ -4,7 +4,7 @@ CONFIG_ARCH_BCM283X=y
@@ -560,7 +560,25 @@ index 69e8e72c5d7..f75416120b4 100644
  CONFIG_SYS_PBSIZE=1049
  # CONFIG_DISPLAY_CPUINFO is not set
  # CONFIG_DISPLAY_BOARDINFO is not set
-@@ -65,3 +65,38 @@ CONFIG_VIDEO_BCM2835=y
+@@ -57,6 +57,17 @@ CONFIG_USB_KEYBOARD=y
+ CONFIG_USB_HOST_ETHER=y
+ CONFIG_USB_ETHER_LAN78XX=y
+ CONFIG_USB_ETHER_SMSC95XX=y
++# USB Gadget support (USB-C port, active on RPi 4 via DWC2 peripheral mode)
++CONFIG_DM_USB_GADGET=y
++CONFIG_USB_GADGET=y
++CONFIG_USB_GADGET_VENDOR_NUM=0x0525
++CONFIG_USB_GADGET_PRODUCT_NUM=0xa4a5
++CONFIG_USB_GADGET_DWC2_OTG=y
++CONFIG_USB_GADGET_DOWNLOAD=y
++CONFIG_USB_FUNCTION_MASS_STORAGE=y
++CONFIG_USB_ETHER=y
++CONFIG_USB_ETH_CDC=y
++CONFIG_USB_ETH_RNDIS=y
+ CONFIG_VIDEO=y
+ # CONFIG_VIDEO_BPP8 is not set
+ # CONFIG_VIDEO_BPP16 is not set
+@@ -65,3 +76,38 @@ CONFIG_VIDEO_BCM2835=y
  CONFIG_CONSOLE_SCROLL_LINES=10
  CONFIG_PHYS_TO_BUS=y
  # CONFIG_HEXDUMP is not set
@@ -3862,7 +3880,7 @@ index 0c81e606622..0e0cc1979eb 100644
  #if !IS_ENABLED(CONFIG_VIDEO_DT_SIMPLEFB)
  	{ .compatible = "simple-framebuffer" },
 diff --git a/dts/upstream/src/arm/broadcom/bcm2711-rpi-4-b.dts b/dts/upstream/src/arm/broadcom/bcm2711-rpi-4-b.dts
-index 353bb50ce54..8aa70a4e4cd 100644
+index 353bb50ce54..3db0b3aa9ee 100644
 --- a/dts/upstream/src/arm/broadcom/bcm2711-rpi-4-b.dts
 +++ b/dts/upstream/src/arm/broadcom/bcm2711-rpi-4-b.dts
 @@ -3,7 +3,7 @@
@@ -3870,7 +3888,7 @@ index 353bb50ce54..8aa70a4e4cd 100644
  #include "bcm2711-rpi.dtsi"
  #include "bcm283x-rpi-led-deprecated.dtsi"
 -#include "bcm283x-rpi-usb-peripheral.dtsi"
-+#include "bcm283x-rpi-usb-host.dtsi"
++#include "bcm283x-rpi-usb-otg.dtsi"
  #include "bcm283x-rpi-wifi-bt.dtsi"
  #include <dt-bindings/leds/common.h>
  
