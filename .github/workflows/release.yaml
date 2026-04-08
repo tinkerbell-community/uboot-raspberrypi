@@ -335,7 +335,7 @@ jobs:
           path: ipxe
 
       - name: Install dependencies
-        run: sudo apt-get update -q && sudo apt-get install -y dosfstools u-boot-tools
+        run: sudo apt-get update -q && sudo apt-get install -y dosfstools mtools u-boot-tools
 
       - name: Build initrd.img (FAT image with EFI binary + uboot.env)
         run: |
