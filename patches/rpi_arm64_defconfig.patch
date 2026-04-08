@@ -295,7 +295,7 @@ index 7a1de22e0ae..97a6b9aa5b3 100644
  		.phys = 0x107c000000UL,
  		.size = 0x0004000000UL,
 diff --git a/board/raspberrypi/rpi/rpi.c b/board/raspberrypi/rpi/rpi.c
-index 7f69e5b6163..8e488f99cb8 100644
+index 7f69e5b6163..f4ceba8c543 100644
 --- a/board/raspberrypi/rpi/rpi.c
 +++ b/board/raspberrypi/rpi/rpi.c
 @@ -20,12 +20,15 @@
@@ -325,7 +325,7 @@ index 7f69e5b6163..8e488f99cb8 100644
  	printf("RPI %s (0x%x)\n", model->name, revision);
  }
  
-@@ -571,6 +578,28 @@ int board_fdt_blob_setup(void **fdtp)
+@@ -571,6 +578,42 @@ int board_fdt_blob_setup(void **fdtp)
  	return 0;
  }
  
@@ -341,20 +341,34 @@ index 7f69e5b6163..8e488f99cb8 100644
 + */
 +int board_fix_fdt(void *fdt)
 +{
-+	int node;
++	int node, ret;
 +
 +	node = fdt_path_offset(fdt, "/soc/usb@7e980000");
 +	if (node < 0)
 +		return 0;
 +
-+	return fdt_setprop_string(fdt, node, "dr_mode", "host");
++	ret = fdt_setprop_string(fdt, node, "dr_mode", "host");
++	if (ret == -FDT_ERR_NOSPACE) {
++		/* Firmware DTB is packed; grow it and retry. */
++		ret = fdt_increase_size(fdt, 32);
++		if (!ret)
++			ret = fdt_setprop_string(fdt, node, "dr_mode",
++						 "host");
++	}
++
++	if (ret)
++		printf("RPI: unable to set USB dr_mode: %s\n",
++		       fdt_strerror(ret));
++
++	/* Never fail boot over a USB fixup. */
++	return 0;
 +}
 +#endif
 +
  int copy_property(void *dst, void *src, char *path, char *property)
  {
  	int dst_offset, src_offset;
-@@ -661,11 +690,62 @@ int ft_board_setup(void *blob, struct bd_info *bd)
+@@ -661,11 +704,62 @@ int ft_board_setup(void *blob, struct bd_info *bd)
  	return 0;
  }
  
@@ -419,7 +433,7 @@ index 7f69e5b6163..8e488f99cb8 100644
  }
  
  static bool is_rpi3(void)
-@@ -681,30 +761,33 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
+@@ -681,30 +775,33 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
  	struct {
  		const char *fdt_compatible;
  		const char *acpi_scope;
@@ -468,7 +482,7 @@ index 7f69e5b6163..8e488f99cb8 100644
  		    (is_rpi3() && !map[i].on_rpi3)) {
  			enabled = false;
  		} else {
-@@ -743,7 +826,7 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
+@@ -743,7 +840,7 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
  	acpigen_write_name_integer(ctx, "_STA", enabled ? 0xf : 0);
  	acpigen_pop_len(ctx);
  
