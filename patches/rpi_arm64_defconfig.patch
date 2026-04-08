@@ -13,24 +13,19 @@ index 82ad3035308..5d97c94cbec 100644
  
  dtb-$(CONFIG_TARGET_BCMNS) += ns-board.dtb
  
-diff --git a/arch/arm/dts/bcm2711-rpi-4-b-u-boot.dtsi b/arch/arm/dts/bcm2711-rpi-4-b-u-boot.dtsi
-new file mode 100644
-index 00000000000..c401a53fc78
---- /dev/null
-+++ b/arch/arm/dts/bcm2711-rpi-4-b-u-boot.dtsi
-@@ -0,0 +1,12 @@
-+// SPDX-License-Identifier: GPL-2.0
-+/*
-+ * U-Boot device tree overlay for Raspberry Pi 4 Model B.
-+ *
-+ * Override the DWC2 OTG controller (USB-C port) to host mode so it
-+ * initialises as a USB host controller during "usb start".
-+ * The upstream DTS sets dr_mode = "peripheral" (bcm283x-rpi-usb-peripheral.dtsi)
-+ * which causes the DWC2 host driver to skip init.
-+ */
-+&usb {
-+	dr_mode = "host";
-+};
+diff --git a/arch/arm/dts/bcm2711-rpi-4-b.dts b/arch/arm/dts/bcm2711-rpi-4-b.dts
+index 72ce80fbf26..a73bf3e0c2f 100644
+--- a/arch/arm/dts/bcm2711-rpi-4-b.dts
++++ b/arch/arm/dts/bcm2711-rpi-4-b.dts
+@@ -2,7 +2,7 @@
+ /dts-v1/;
+ #include "bcm2711.dtsi"
+ #include "bcm2711-rpi.dtsi"
+-#include "bcm283x-rpi-usb-peripheral.dtsi"
++#include "bcm283x-rpi-usb-host.dtsi"
+ 
+ / {
+ 	compatible = "raspberrypi,4-model-b", "brcm,bcm2711";
 diff --git a/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi b/arch/arm/dts/bcm2712-rpi-5-b-u-boot.dtsi
 new file mode 100644
 index 00000000000..33d56530c2f
@@ -295,7 +290,7 @@ index 7a1de22e0ae..97a6b9aa5b3 100644
  		.phys = 0x107c000000UL,
  		.size = 0x0004000000UL,
 diff --git a/board/raspberrypi/rpi/rpi.c b/board/raspberrypi/rpi/rpi.c
-index 7f69e5b6163..f4ceba8c543 100644
+index 7f69e5b6163..975bcfd4af8 100644
 --- a/board/raspberrypi/rpi/rpi.c
 +++ b/board/raspberrypi/rpi/rpi.c
 @@ -20,12 +20,15 @@
@@ -325,50 +320,7 @@ index 7f69e5b6163..f4ceba8c543 100644
  	printf("RPI %s (0x%x)\n", model->name, revision);
  }
  
-@@ -571,6 +578,42 @@ int board_fdt_blob_setup(void **fdtp)
- 	return 0;
- }
- 
-+#if CONFIG_IS_ENABLED(OF_BOARD_FIXUP)
-+/*
-+ * Fix up the firmware-provided FDT before driver model binding.
-+ *
-+ * The RPi 4 USB-C port is wired to a DWC2 OTG controller.  The firmware
-+ * DTB typically sets dr_mode = "otg" on this node, which causes the DWC2
-+ * gadget driver to claim it before the host driver can bind.  Override
-+ * dr_mode to "host" so the controller appears as a USB host and devices
-+ * plugged into the USB-C port are enumerated by "usb start".
-+ */
-+int board_fix_fdt(void *fdt)
-+{
-+	int node, ret;
-+
-+	node = fdt_path_offset(fdt, "/soc/usb@7e980000");
-+	if (node < 0)
-+		return 0;
-+
-+	ret = fdt_setprop_string(fdt, node, "dr_mode", "host");
-+	if (ret == -FDT_ERR_NOSPACE) {
-+		/* Firmware DTB is packed; grow it and retry. */
-+		ret = fdt_increase_size(fdt, 32);
-+		if (!ret)
-+			ret = fdt_setprop_string(fdt, node, "dr_mode",
-+						 "host");
-+	}
-+
-+	if (ret)
-+		printf("RPI: unable to set USB dr_mode: %s\n",
-+		       fdt_strerror(ret));
-+
-+	/* Never fail boot over a USB fixup. */
-+	return 0;
-+}
-+#endif
-+
- int copy_property(void *dst, void *src, char *path, char *property)
- {
- 	int dst_offset, src_offset;
-@@ -661,11 +704,62 @@ int ft_board_setup(void *blob, struct bd_info *bd)
+@@ -661,11 +668,62 @@ int ft_board_setup(void *blob, struct bd_info *bd)
  	return 0;
  }
  
@@ -433,7 +385,7 @@ index 7f69e5b6163..f4ceba8c543 100644
  }
  
  static bool is_rpi3(void)
-@@ -681,30 +775,33 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
+@@ -681,30 +739,33 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
  	struct {
  		const char *fdt_compatible;
  		const char *acpi_scope;
@@ -482,7 +434,7 @@ index 7f69e5b6163..f4ceba8c543 100644
  		    (is_rpi3() && !map[i].on_rpi3)) {
  			enabled = false;
  		} else {
-@@ -743,7 +840,7 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
+@@ -743,7 +804,7 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
  	acpigen_write_name_integer(ctx, "_STA", enabled ? 0xf : 0);
  	acpigen_pop_len(ctx);
  
@@ -582,21 +534,19 @@ index 20f48ae0007..eeb10e48c29 100644
  	U_BOOT_SUBCMD_MKENT(run, 1, 1, do_cedit_run),
  );
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
-index 69e8e72c5d7..9f9c8f4d4f5 100644
+index 69e8e72c5d7..a297e37f590 100644
 --- a/configs/rpi_arm64_defconfig
 +++ b/configs/rpi_arm64_defconfig
-@@ -4,8 +4,9 @@ CONFIG_ARCH_BCM283X=y
+@@ -4,7 +4,7 @@ CONFIG_ARCH_BCM283X=y
  CONFIG_TARGET_RPI_ARM64=y
  CONFIG_NR_DRAM_BANKS=8
  CONFIG_ENV_SIZE=0x4000
 -CONFIG_DEFAULT_DEVICE_TREE="bcm2711-rpi-4-b"
 +CONFIG_DEFAULT_DEVICE_TREE="broadcom/bcm2711-rpi-4-b"
  CONFIG_OF_LIBFDT_OVERLAY=y
-+CONFIG_OF_BOARD_FIXUP=y
  CONFIG_DM_RESET=y
  CONFIG_SYS_LOAD_ADDR=0x1000000
- CONFIG_PCI=y
-@@ -15,7 +16,7 @@ CONFIG_BOOTSTD_DEFAULTS=y
+@@ -15,7 +15,7 @@ CONFIG_BOOTSTD_DEFAULTS=y
  CONFIG_OF_BOARD_SETUP=y
  CONFIG_FDT_SIMPLEFB=y
  CONFIG_USE_PREBOOT=y
@@ -605,7 +555,7 @@ index 69e8e72c5d7..9f9c8f4d4f5 100644
  CONFIG_SYS_PBSIZE=1049
  # CONFIG_DISPLAY_CPUINFO is not set
  # CONFIG_DISPLAY_BOARDINFO is not set
-@@ -57,6 +58,17 @@ CONFIG_USB_KEYBOARD=y
+@@ -57,6 +57,17 @@ CONFIG_USB_KEYBOARD=y
  CONFIG_USB_HOST_ETHER=y
  CONFIG_USB_ETHER_LAN78XX=y
  CONFIG_USB_ETHER_SMSC95XX=y
@@ -623,7 +573,7 @@ index 69e8e72c5d7..9f9c8f4d4f5 100644
  CONFIG_VIDEO=y
  # CONFIG_VIDEO_BPP8 is not set
  # CONFIG_VIDEO_BPP16 is not set
-@@ -65,3 +77,38 @@ CONFIG_VIDEO_BCM2835=y
+@@ -65,3 +76,38 @@ CONFIG_VIDEO_BCM2835=y
  CONFIG_CONSOLE_SCROLL_LINES=10
  CONFIG_PHYS_TO_BUS=y
  # CONFIG_HEXDUMP is not set
