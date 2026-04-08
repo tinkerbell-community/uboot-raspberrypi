@@ -12,15 +12,15 @@
 				compatible = "u-boot,sysinfo-smbios";
 				smbios {
 					system {
-						manufacturer = "raspberrypi";
+						manufacturer = "Raspberry Pi";
 						product = "rpi";
 					};
 					baseboard {
-						manufacturer = "raspberrypi";
+						manufacturer = "Raspberry Pi";
 						product = "rpi";
 					};
 					chassis {
-						manufacturer = "raspberrypi";
+						manufacturer = "Raspberry Pi";
 						product = "rpi";
 					};
 				};
