@@ -30,16 +30,13 @@ enable_uart=1
 # disable_overscan=1
 
 [pi4]
-# Slightly higher GPU mem for HDMI init
-gpu_mem=64
 # Disable Bluetooth.
 dtoverlay=disable-bt
 # Disable Wireless Lan.
 dtoverlay=disable-wifi
-dtoverlay=vc4-kms-v3d-pi4,noaudio
+dtoverlay=dwc2
 
 [pi5]
 enable_uart=0
-framebuffer_depth=16
 
 [all]
