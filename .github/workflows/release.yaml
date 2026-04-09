@@ -354,7 +354,7 @@ jobs:
           cat > uboot.env.txt << 'EOF'
           serial#=
           bootdelay=3
-          boot_targets=ramdisk mmc nvme usb pxe dhcp
+          boot_targets=blkmap0 mmc nvme usb pxe dhcp
           bootcmd=bootflow scan
           EOF
           # Strip leading whitespace from heredoc

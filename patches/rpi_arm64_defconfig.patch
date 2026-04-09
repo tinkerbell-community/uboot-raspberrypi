@@ -476,7 +476,7 @@ index b0a1484c0fa..db888098034 100644
  		node = fdt_node_offset_by_compatible(gd->fdt_blob, -1, "brcm,bcm2711-emmc2");
  		if (node) {
 diff --git a/board/raspberrypi/rpi/rpi.env b/board/raspberrypi/rpi/rpi.env
-index 9ac9d6768ca..ff5dcc3967c 100644
+index 9ac9d6768ca..58f336f3888 100644
 --- a/board/raspberrypi/rpi/rpi.env
 +++ b/board/raspberrypi/rpi/rpi.env
 @@ -77,4 +77,4 @@ pxefile_addr_r=0x05500000
@@ -484,9 +484,9 @@ index 9ac9d6768ca..ff5dcc3967c 100644
  ramdisk_addr_r=0x05700000
  
 -boot_targets=mmc usb pxe dhcp
-+boot_targets=ramdisk mmc nvme usb pxe dhcp
++boot_targets=blkmap0 mmc nvme usb pxe dhcp
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
-index 69e8e72c5d7..fa9019529cc 100644
+index 69e8e72c5d7..4417ec5df2e 100644
 --- a/configs/rpi_arm64_defconfig
 +++ b/configs/rpi_arm64_defconfig
 @@ -4,7 +4,7 @@ CONFIG_ARCH_BCM283X=y
@@ -507,7 +507,7 @@ index 69e8e72c5d7..fa9019529cc 100644
  CONFIG_SYS_PBSIZE=1049
  # CONFIG_DISPLAY_CPUINFO is not set
  # CONFIG_DISPLAY_BOARDINFO is not set
-@@ -65,3 +65,38 @@ CONFIG_VIDEO_BCM2835=y
+@@ -65,3 +65,41 @@ CONFIG_VIDEO_BCM2835=y
  CONFIG_CONSOLE_SCROLL_LINES=10
  CONFIG_PHYS_TO_BUS=y
  # CONFIG_HEXDUMP is not set
@@ -545,7 +545,10 @@ index 69e8e72c5d7..fa9019529cc 100644
 +CONFIG_CMD_BOOTMENU=y
 +CONFIG_CMD_BOOTFLOW_FULL=y
 +CONFIG_AUTOBOOT_MENU_SHOW=y
++# EFI Ramdisk support
 +CONFIG_EFI_LOAD_FILE2_PROTOCOL=y
++CONFIG_CMD_BLKMAP=y
++CONFIG_BLKMAP=y
 diff --git a/drivers/clk/Kconfig b/drivers/clk/Kconfig
 index c2da7b3938b..fa4bd11645f 100644
 --- a/drivers/clk/Kconfig
