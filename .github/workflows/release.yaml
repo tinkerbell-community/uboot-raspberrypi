@@ -134,7 +134,7 @@ jobs:
       - name: Build U-Boot
         working-directory: u-boot
         run: |
-          make -j $(nproc) HOSTLDLIBS_mkimage="-lssl -lcrypto"
+          make -j $(nproc) HOSTLDLIBS_mkimage="-lssl -lcrypto" LOCALVERSION_AUTO=n
           ls -la u-boot.bin
 
       - name: Upload U-Boot binary
