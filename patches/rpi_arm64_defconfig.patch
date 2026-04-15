@@ -537,7 +537,7 @@ index 9ac9d6768ca..6b8a909837d 100644
 -boot_targets=mmc usb pxe dhcp
 +boot_targets=blkmap mmc nvme usb pxe dhcp
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
-index 69e8e72c5d7..aac206e2c5e 100644
+index 69e8e72c5d7..32c8b273752 100644
 --- a/configs/rpi_arm64_defconfig
 +++ b/configs/rpi_arm64_defconfig
 @@ -4,7 +4,7 @@ CONFIG_ARCH_BCM283X=y
@@ -558,7 +558,7 @@ index 69e8e72c5d7..aac206e2c5e 100644
  CONFIG_SYS_PBSIZE=1049
  # CONFIG_DISPLAY_CPUINFO is not set
  # CONFIG_DISPLAY_BOARDINFO is not set
-@@ -28,8 +28,14 @@ CONFIG_CMD_PCI=y
+@@ -28,8 +28,16 @@ CONFIG_CMD_PCI=y
  CONFIG_CMD_USB=y
  CONFIG_CMD_EFIDEBUG=y
  CONFIG_CMD_FS_UUID=y
@@ -567,14 +567,16 @@ index 69e8e72c5d7..aac206e2c5e 100644
 +CONFIG_ENV_IS_NOWHERE=y
 +CONFIG_ENV_IS_IN_MMC=y
 +CONFIG_ENV_IS_IN_FAT=y
-+CONFIG_ENV_REDUNDANT=y
++# CONFIG_ENV_REDUNDANT is not set
++CONFIG_ENV_FAT_FILE="uboot.env"
++CONFIG_ENV_OFFSET=0x80000
 +CONFIG_ENV_FAT_DEVICE_AND_PART=":auto"
  CONFIG_ENV_VARS_UBOOT_RUNTIME_CONFIG=y
 +CONFIG_ENV_RELOC_GD_ENV_ADDR=y
  CONFIG_TFTP_TSIZE=y
  CONFIG_DM_DMA=y
  CONFIG_DFU_MMC=y
-@@ -65,3 +71,40 @@ CONFIG_VIDEO_BCM2835=y
+@@ -65,3 +73,40 @@ CONFIG_VIDEO_BCM2835=y
  CONFIG_CONSOLE_SCROLL_LINES=10
  CONFIG_PHYS_TO_BUS=y
  # CONFIG_HEXDUMP is not set
