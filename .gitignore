@@ -6,3 +6,5 @@ optee_os
 BaseTools
 Build
 .github/docs
+.github/instructions
+scripts/smbios.txt

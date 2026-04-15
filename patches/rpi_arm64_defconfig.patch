@@ -322,7 +322,7 @@ index 7a1de22e0ae..97a6b9aa5b3 100644
  		.phys = 0x107c000000UL,
  		.size = 0x0004000000UL,
 diff --git a/board/raspberrypi/rpi/rpi.c b/board/raspberrypi/rpi/rpi.c
-index b0a1484c0fa..a411e3255bc 100644
+index b0a1484c0fa..18fec0bc163 100644
 --- a/board/raspberrypi/rpi/rpi.c
 +++ b/board/raspberrypi/rpi/rpi.c
 @@ -9,6 +9,7 @@
@@ -349,50 +349,7 @@ index b0a1484c0fa..a411e3255bc 100644
  #include <acpi/acpi_table.h>
  #include <acpi/acpigen.h>
  #include <dm/lists.h>
-@@ -472,11 +476,42 @@ static void set_serial_number(void)
- 	env_set("serial#", serial_string);
- }
- 
-+static void set_initrd_addr(void)
-+{
-+	int node;
-+	u64 start, end;
-+
-+	node = fdt_path_offset(gd->fdt_blob, "/chosen");
-+	if (node < 0)
-+		return;
-+
-+	start = fdtdec_get_uint64(gd->fdt_blob, node,
-+				  "linux,initrd-start", 0);
-+	if (!start)
-+		start = fdtdec_get_uint(gd->fdt_blob, node,
-+					"linux,initrd-start", 0);
-+	if (!start)
-+		return;
-+
-+	end = fdtdec_get_uint64(gd->fdt_blob, node,
-+				"linux,initrd-end", 0);
-+	if (!end)
-+		end = fdtdec_get_uint(gd->fdt_blob, node,
-+				      "linux,initrd-end", 0);
-+	if (!end || end <= start)
-+		return;
-+
-+	env_set_hex("ramdisk_addr", (ulong)start);
-+	env_set_hex("ramdisk_size", (ulong)(end - start));
-+	env_set_hex("ramdisk_blkcnt", (ulong)((end - start + 511) / 512));
-+}
-+
- int misc_init_r(void)
- {
- 	set_fdt_addr();
- 	set_fdtfile();
- 	set_usbethaddr();
-+	set_initrd_addr();
- #ifdef CONFIG_ENV_VARS_UBOOT_RUNTIME_CONFIG
- 	set_board_info();
- #endif
-@@ -546,6 +581,10 @@ static void get_board_revision(void)
+@@ -546,6 +550,10 @@ static void get_board_revision(void)
  		model = &models[rev_type];
  	}
  
@@ -403,7 +360,7 @@ index b0a1484c0fa..a411e3255bc 100644
  	printf("RPI %s (0x%x)\n", model->name, revision);
  }
  
-@@ -661,11 +700,62 @@ int ft_board_setup(void *blob, struct bd_info *bd)
+@@ -661,11 +669,62 @@ int ft_board_setup(void *blob, struct bd_info *bd)
  	return 0;
  }
  
@@ -468,7 +425,7 @@ index b0a1484c0fa..a411e3255bc 100644
  }
  
  static bool is_rpi3(void)
-@@ -681,30 +771,33 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
+@@ -681,30 +740,33 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
  	struct {
  		const char *fdt_compatible;
  		const char *acpi_scope;
@@ -517,7 +474,7 @@ index b0a1484c0fa..a411e3255bc 100644
  		    (is_rpi3() && !map[i].on_rpi3)) {
  			enabled = false;
  		} else {
-@@ -743,7 +836,7 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
+@@ -743,7 +805,7 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
  	acpigen_write_name_integer(ctx, "_STA", enabled ? 0xf : 0);
  	acpigen_pop_len(ctx);
  
@@ -527,17 +484,18 @@ index b0a1484c0fa..a411e3255bc 100644
  		node = fdt_node_offset_by_compatible(gd->fdt_blob, -1, "brcm,bcm2711-emmc2");
  		if (node) {
 diff --git a/board/raspberrypi/rpi/rpi.env b/board/raspberrypi/rpi/rpi.env
-index 9ac9d6768ca..6b8a909837d 100644
+index 9ac9d6768ca..2d1273a5aee 100644
 --- a/board/raspberrypi/rpi/rpi.env
 +++ b/board/raspberrypi/rpi/rpi.env
-@@ -77,4 +77,4 @@ pxefile_addr_r=0x05500000
+@@ -77,4 +77,5 @@ pxefile_addr_r=0x05500000
  fdt_addr_r=0x05600000
  ramdisk_addr_r=0x05700000
  
 -boot_targets=mmc usb pxe dhcp
-+boot_targets=blkmap mmc nvme usb pxe dhcp
++boot_targets=usb0 mmc nvme
++bootmeths=extlinux efi script pxe efi_mgr
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
-index 69e8e72c5d7..f1327ccb8b9 100644
+index 69e8e72c5d7..b2a401ed945 100644
 --- a/configs/rpi_arm64_defconfig
 +++ b/configs/rpi_arm64_defconfig
 @@ -4,7 +4,7 @@ CONFIG_ARCH_BCM283X=y
@@ -549,36 +507,48 @@ index 69e8e72c5d7..f1327ccb8b9 100644
  CONFIG_OF_LIBFDT_OVERLAY=y
  CONFIG_DM_RESET=y
  CONFIG_SYS_LOAD_ADDR=0x1000000
-@@ -15,7 +15,7 @@ CONFIG_BOOTSTD_DEFAULTS=y
+@@ -15,24 +15,39 @@ CONFIG_BOOTSTD_DEFAULTS=y
  CONFIG_OF_BOARD_SETUP=y
  CONFIG_FDT_SIMPLEFB=y
  CONFIG_USE_PREBOOT=y
 -CONFIG_PREBOOT="pci enum; usb start;"
-+CONFIG_PREBOOT="pci enum; nvme scan; usb start"
++CONFIG_PREBOOT="pci enum; nvme scan; usb start; env load"
  CONFIG_SYS_PBSIZE=1049
  # CONFIG_DISPLAY_CPUINFO is not set
  # CONFIG_DISPLAY_BOARDINFO is not set
-@@ -28,8 +28,18 @@ CONFIG_CMD_PCI=y
+ CONFIG_MISC_INIT_R=y
+ CONFIG_SYS_PROMPT="U-Boot> "
+ CONFIG_CMD_NVEDIT_EFI=y
++CONFIG_CMD_NVEDIT_LOAD=y
+ CONFIG_CMD_GPIO=y
+ CONFIG_CMD_MMC=y
+ CONFIG_CMD_PCI=y
  CONFIG_CMD_USB=y
  CONFIG_CMD_EFIDEBUG=y
  CONFIG_CMD_FS_UUID=y
--CONFIG_ENV_FAT_DEVICE_AND_PART="0:1"
 +CONFIG_ENV_OVERWRITE=y
-+CONFIG_ENV_IS_NOWHERE=y
-+CONFIG_ENV_IS_IN_MMC=y
++CONFIG_ENV_APPEND=y
++CONFIG_ENV_IS_NOWHERE=n
++CONFIG_ENV_IS_IN_MMC=n
 +CONFIG_ENV_IS_IN_FAT=y
-+CONFIG_ENV_IS_IN_UBI=y
-+CONFIG_ENV_IS_IN_MTD=y
++CONFIG_ENV_IS_IN_UBI=n
++CONFIG_ENV_FAT_INTERFACE="usb"
++CONFIG_ENV_VARS_UBOOT_CONFIG=y
++CONFIG_VERSION_VARIABLE=y
 +# CONFIG_ENV_REDUNDANT is not set
 +CONFIG_ENV_FAT_FILE="uboot.env"
-+CONFIG_ENV_OFFSET=0x80000
-+CONFIG_ENV_FAT_DEVICE_AND_PART=":auto"
++# CONFIG_ENV_OFFSET=0x00000
+ CONFIG_ENV_FAT_DEVICE_AND_PART="0:1"
  CONFIG_ENV_VARS_UBOOT_RUNTIME_CONFIG=y
-+CONFIG_ENV_RELOC_GD_ENV_ADDR=y
++# CONFIG_ENV_RELOC_GD_ENV_ADDR=y
  CONFIG_TFTP_TSIZE=y
  CONFIG_DM_DMA=y
  CONFIG_DFU_MMC=y
-@@ -65,3 +75,40 @@ CONFIG_VIDEO_BCM2835=y
++CONFIG_DFU_OVER_USB=y
+ CONFIG_SYS_DFU_DATA_BUF_SIZE=0x100000
+ CONFIG_SYS_DFU_MAX_FILE_SIZE=0x200000
+ CONFIG_BCM2835_GPIO=y
+@@ -65,3 +80,37 @@ CONFIG_VIDEO_BCM2835=y
  CONFIG_CONSOLE_SCROLL_LINES=10
  CONFIG_PHYS_TO_BUS=y
  # CONFIG_HEXDUMP is not set
@@ -607,7 +577,7 @@ index 69e8e72c5d7..f1327ccb8b9 100644
 +CONFIG_BOOTMETH_SCRIPT=n
 +CONFIG_PXE_UTILS=n
 +# Disable EFI bootmanager (reserves memory on 0x00080000 -> prevents continuing after being successful)
-+CONFIG_CMD_BOOTEFI_BOOTMGR=n
++CONFIG_CMD_BOOTEFI_BOOTMGR=y
 +# Expo Menu
 +CONFIG_BOOTSTD_FULL=y
 +CONFIG_BOOTSTD_BOOTCOMMAND=y
@@ -616,9 +586,6 @@ index 69e8e72c5d7..f1327ccb8b9 100644
 +CONFIG_CMD_BOOTMENU=y
 +CONFIG_CMD_BOOTFLOW_FULL=y
 +CONFIG_AUTOBOOT_MENU_SHOW=y
-+# EFI Ramdisk support
-+CONFIG_CMD_BLKMAP=y
-+CONFIG_BLKMAP=y
 diff --git a/drivers/clk/Kconfig b/drivers/clk/Kconfig
 index c2da7b3938b..fa4bd11645f 100644
 --- a/drivers/clk/Kconfig

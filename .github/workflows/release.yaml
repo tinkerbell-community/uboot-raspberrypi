@@ -115,7 +115,7 @@ jobs:
         working-directory: u-boot
         run: |
           patch -p1 < ${{ github.workspace }}/src/patches/rpi_arm64_defconfig.patch
-          make rpi_arm64_defconfig
+          make rpi_arm64_defconfig LOCALVERSION_AUTO=n
 
           echo "CONFIG_SERVERIP_FROM_PROXYDHCP=y" >> .config
           echo "CONFIG_BOOTP_SEND_HOSTNAME=y" >> .config
@@ -137,11 +137,22 @@ jobs:
           make -j $(nproc) HOSTLDLIBS_mkimage="-lssl -lcrypto" LOCALVERSION_AUTO=n
           ls -la u-boot.bin
 
+      - name: Create U-Boot Environment configuration
+        working-directory: u-boot
+        run: |
+          make u-boot-initial-env -j $(nproc) HOSTLDLIBS_mkimage="-lssl -lcrypto" LOCALVERSION_AUTO=n
+          # Strip leading whitespace from heredoc
+          sed -i 's/^[[:space:]]*//' u-boot-initial-env
+          ./tools/mkenvimage -s 0x4000 -o uboot.env u-boot-initial-env
+          ls -la uboot.env
+
       - name: Upload U-Boot binary
         uses: actions/upload-artifact@v4
         with:
           name: uboot-binary
-          path: u-boot/u-boot.bin
+          path: |
+            u-boot/u-boot.bin
+            u-boot/uboot.env
           retention-days: 1
           if-no-files-found: error
 
@@ -448,6 +459,7 @@ jobs:
 
           # Copy U-Boot binaries
           cp artifacts/uboot-*/*.bin build/
+          cp artifacts/uboot-*/*.env build/
           ls -lah build/
 
           # Copy config file
@@ -462,7 +474,7 @@ jobs:
           cat > build/fw_env.config << 'FW_ENV_EOF'
           # U-Boot environment — FAT file: /uboot.env
           # device          offset   size
-          /uboot.env        0x80000  0x4000
+          /uboot.env        0x0000   0x4000
           FW_ENV_EOF
 
           # Copy firmware files
