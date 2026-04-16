@@ -1,3 +1,12 @@
+diff --git a/.gitignore b/.gitignore
+index e5d22dbe8e9..6272b8fbab1 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -139,3 +139,4 @@ __pycache__
+ 
+ # Clang's compilation database file
+ /compile_commands.json
++/firmware/
 diff --git a/arch/arm/dts/Makefile b/arch/arm/dts/Makefile
 index 4085d4c2de1..388aa5042f7 100644
 --- a/arch/arm/dts/Makefile
@@ -151,10 +160,10 @@ index ec0f93dd850..30260fa5269 100644
 +	};
 +};
 diff --git a/arch/arm/mach-bcm283x/Kconfig b/arch/arm/mach-bcm283x/Kconfig
-index d9303e8c281..861d0d9a1b5 100644
+index d9303e8c281..6fe85cbb658 100644
 --- a/arch/arm/mach-bcm283x/Kconfig
 +++ b/arch/arm/mach-bcm283x/Kconfig
-@@ -56,6 +56,22 @@ config BCM2711_64B
+@@ -56,6 +56,23 @@ config BCM2711_64B
  	select BLOBLIST_ALLOC if GENERATE_ACPI_TABLE
  	select BLOBLIST_TABLES if GENERATE_ACPI_TABLE
  
@@ -165,6 +174,7 @@ index d9303e8c281..861d0d9a1b5 100644
 +	select ARM64
 +	select CPU_ARMV8
 +	select PINCTRL_BCM2712 if PINCTRL
++	select BRCMSTB_GPIO
 +	select RP1_GPIO
 +	select CLK_RP1 if CLK
 +	select ARMV8_MULTIENTRY if GENERATE_ACPI_TABLE
@@ -321,11 +331,31 @@ index 7a1de22e0ae..97a6b9aa5b3 100644
  		.virt = 0x107c000000UL,
  		.phys = 0x107c000000UL,
  		.size = 0x0004000000UL,
+diff --git a/arch/arm/mach-bcm283x/reset.c b/arch/arm/mach-bcm283x/reset.c
+index 1dc7ce50d1d..29939c294de 100644
+--- a/arch/arm/mach-bcm283x/reset.c
++++ b/arch/arm/mach-bcm283x/reset.c
+@@ -45,6 +45,7 @@ __reset_cpu(struct bcm2835_wdog_regs *wdog_regs, ulong ticks)
+ 	writel(BCM2835_WDOG_PASSWORD | rstc, &wdog_regs->rstc);
+ }
+ 
++#if !CONFIG_IS_ENABLED(SYSRESET)
+ void reset_cpu(void)
+ {
+ 	struct bcm2835_wdog_regs *regs =
+@@ -52,6 +53,7 @@ void reset_cpu(void)
+ 
+ 	__reset_cpu(regs, 0);
+ }
++#endif
+ 
+ #ifdef CONFIG_EFI_LOADER
+ 
 diff --git a/board/raspberrypi/rpi/rpi.c b/board/raspberrypi/rpi/rpi.c
-index b0a1484c0fa..18fec0bc163 100644
+index b0a1484c0fa..e568851fcc6 100644
 --- a/board/raspberrypi/rpi/rpi.c
 +++ b/board/raspberrypi/rpi/rpi.c
-@@ -9,6 +9,7 @@
+@@ -9,27 +9,36 @@
  #include <dm.h>
  #include <env.h>
  #include <efi_loader.h>
@@ -333,7 +363,12 @@ index b0a1484c0fa..18fec0bc163 100644
  #include <fdt_support.h>
  #include <fdt_simplefb.h>
  #include <init.h>
-@@ -20,12 +21,15 @@
+ #include <memalign.h>
+ #include <mmc.h>
+ #include <asm/gpio.h>
++#include <asm/io.h>
+ #include <asm/arch/mbox.h>
+ #include <asm/arch/msg.h>
  #include <asm/arch/sdhci.h>
  #include <asm/global_data.h>
  #include <dm/platform_data/serial_bcm283x_mu.h>
@@ -341,6 +376,7 @@ index b0a1484c0fa..18fec0bc163 100644
  #ifdef CONFIG_ARM64
  #include <asm/armv8/mmu.h>
  #endif
++#include <sysreset.h>
  #include <watchdog.h>
  #include <dm/pinctrl.h>
  #include <dm/ofnode.h>
@@ -349,7 +385,14 @@ index b0a1484c0fa..18fec0bc163 100644
  #include <acpi/acpi_table.h>
  #include <acpi/acpigen.h>
  #include <dm/lists.h>
-@@ -546,6 +550,10 @@ static void get_board_revision(void)
+ #include <tables_csum.h>
++#if defined(CONFIG_BCM2712) && defined(CONFIG_CYCLIC)
++#include <cyclic.h>
++#endif
+ 
+ DECLARE_GLOBAL_DATA_PTR;
+ 
+@@ -546,6 +555,10 @@ static void get_board_revision(void)
  		model = &models[rev_type];
  	}
  
@@ -360,7 +403,7 @@ index b0a1484c0fa..18fec0bc163 100644
  	printf("RPI %s (0x%x)\n", model->name, revision);
  }
  
-@@ -661,11 +669,62 @@ int ft_board_setup(void *blob, struct bd_info *bd)
+@@ -661,11 +674,226 @@ int ft_board_setup(void *blob, struct bd_info *bd)
  	return 0;
  }
  
@@ -373,6 +416,168 @@ index b0a1484c0fa..18fec0bc163 100644
 + * This initialization should be done only for RPI5 board.
 + */
 +#ifdef CONFIG_BCM2712
++
++/*
++ * Power button monitoring via GIO edge detection.
++ *
++ * The RPi 5 power button (J2 header / on-board switch) goes through the
++ * PMIC, which signals the VPU firmware, which drives GIO GPIO20 low.
++ * The pulse can be very short (~100-200ms from KVM devices), so simple
++ * level-polling at 100ms intervals misses it.
++ *
++ * Instead we configure the GIO hardware for falling-edge detection.
++ * The STAT register latches the edge and stays set until explicitly
++ * cleared (write-1-to-clear), so even a microsecond pulse is captured.
++ * We poll STAT (plus a level fallback) to reliably detect presses.
++ */
++#if defined(CONFIG_CYCLIC) && defined(CONFIG_DM_GPIO)
++
++/* GIO per-bank register offsets (each bank is 0x20 bytes) */
++#define GIO_BANK_SIZE	0x20
++#define GIO_REG_EC	0x0c	/* edge config: 0 = rising, 1 = falling */
++#define GIO_REG_EI	0x10	/* edge interrupt enable (gates STAT latch) */
++#define GIO_REG_STAT	0x1c	/* interrupt status (sticky, write-1-to-clear) */
++
++#define RPI_PWR_BTN_POLL_US	50000	/* 50ms polling interval */
++
++struct rpi_power_btn_ctx {
++	struct cyclic_info cyclic;
++	struct gpio_desc gpio;		/* DM GPIO handle (level reads + diagnostics) */
++	void __iomem *bank_base;	/* direct GIO bank register base (edge detect) */
++	u32 bit_mask;			/* bit within the bank for the power GPIO */
++};
++
++static struct rpi_power_btn_ctx rpi_pwr_btn;
++
++static void rpi_power_btn_poll(struct cyclic_info *c)
++{
++	struct rpi_power_btn_ctx *ctx =
++		container_of(c, struct rpi_power_btn_ctx, cyclic);
++
++	/* Primary: check hardware edge-triggered status (catches short pulses) */
++	if (ctx->bank_base) {
++		u32 stat = readl(ctx->bank_base + GIO_REG_STAT);
++
++		if (stat & ctx->bit_mask) {
++			writel(ctx->bit_mask, ctx->bank_base + GIO_REG_STAT);
++			printf("\nRPI: Power button pressed, resetting...\n");
++			reset_cpu();
++			return;
++		}
++	}
++
++	/* Fallback: level-based detection for sustained holds */
++	if (dm_gpio_get_value(&ctx->gpio) > 0) {
++		printf("\nRPI: Power button held, resetting...\n");
++		reset_cpu();
++	}
++}
++
++static void rpi_register_power_button(void)
++{
++	ofnode keys_node, btn_node;
++	struct udevice *gpio_dev;
++	void __iomem *gio_base;
++	u32 bank_widths[4];
++	int num_banks, i, bank;
++	u32 gpio_offset, offset;
++	u32 val;
++	int ret;
++
++	keys_node = ofnode_by_compatible(ofnode_null(), "gpio-keys");
++	if (!ofnode_valid(keys_node))
++		return;
++
++	ofnode_for_each_subnode(btn_node, keys_node) {
++		const char *label = ofnode_read_string(btn_node, "label");
++
++		if (label && !strcmp(label, "pwr_button"))
++			break;
++	}
++
++	if (!ofnode_valid(btn_node)) {
++		log_debug("RPI: power button node not found\n");
++		return;
++	}
++
++	/* Request GPIO through DM — ensures it is claimed and set as input */
++	ret = gpio_request_by_name_nodev(btn_node, "gpios", 0,
++					 &rpi_pwr_btn.gpio, GPIOD_IS_IN);
++	if (ret) {
++		log_debug("RPI: failed to request power button GPIO: %d\n", ret);
++		return;
++	}
++
++	/*
++	 * Set up edge detection directly on the GIO hardware registers.
++	 * The DM GPIO layer doesn't expose interrupt/edge functionality,
++	 * so we access the controller registers via the parent device.
++	 */
++	gpio_dev = rpi_pwr_btn.gpio.dev;
++	gpio_offset = rpi_pwr_btn.gpio.offset;
++
++	gio_base = dev_remap_addr(gpio_dev);
++	if (!gio_base) {
++		printf("RPI: cannot map GIO registers, edge detect unavailable\n");
++		goto register_cyclic;
++	}
++
++	/* Determine which bank and bit position this GPIO falls in */
++	num_banks = dev_read_size(gpio_dev, "brcm,gpio-bank-widths");
++	if (num_banks < 0) {
++		printf("RPI: missing bank-widths, edge detect unavailable\n");
++		goto register_cyclic;
++	}
++	num_banks /= sizeof(u32);
++	if (num_banks > ARRAY_SIZE(bank_widths)) {
++		printf("RPI: too many banks, edge detect unavailable\n");
++		goto register_cyclic;
++	}
++	dev_read_u32_array(gpio_dev, "brcm,gpio-bank-widths",
++			   bank_widths, num_banks);
++
++	offset = gpio_offset;
++	bank = -1;
++	for (i = 0; i < num_banks; i++) {
++		if (offset < bank_widths[i]) {
++			bank = i;
++			break;
++		}
++		offset -= bank_widths[i];
++	}
++	if (bank < 0) {
++		printf("RPI: GPIO%u out of range, edge detect unavailable\n",
++		       gpio_offset);
++		goto register_cyclic;
++	}
++
++	rpi_pwr_btn.bank_base = gio_base + bank * GIO_BANK_SIZE;
++	rpi_pwr_btn.bit_mask = BIT(offset);
++
++	/* Configure falling-edge detection (active-low button) */
++	val = readl(rpi_pwr_btn.bank_base + GIO_REG_EC);
++	val |= rpi_pwr_btn.bit_mask;
++	writel(val, rpi_pwr_btn.bank_base + GIO_REG_EC);
++
++	/* Enable edge interrupt status latching (not routed to GIC) */
++	val = readl(rpi_pwr_btn.bank_base + GIO_REG_EI);
++	val |= rpi_pwr_btn.bit_mask;
++	writel(val, rpi_pwr_btn.bank_base + GIO_REG_EI);
++
++	/* Clear any stale edge status */
++	writel(rpi_pwr_btn.bit_mask, rpi_pwr_btn.bank_base + GIO_REG_STAT);
++
++register_cyclic:
++	cyclic_register(&rpi_pwr_btn.cyclic, rpi_power_btn_poll,
++			RPI_PWR_BTN_POLL_US, "rpi_pwr_btn");
++
++	printf("RPI: Power button monitoring enabled (GPIO%u, %s)\n",
++	       gpio_offset, rpi_pwr_btn.bank_base ? "edge+level" : "level-only");
++}
++#else
++static inline void rpi_register_power_button(void) {}
++#endif /* CONFIG_CYCLIC && CONFIG_DM_GPIO */
++
 +int board_late_init(void)
 +{
 +	struct udevice *dev;
@@ -407,6 +612,8 @@ index b0a1484c0fa..18fec0bc163 100644
 +
 +	printf("RPI: RP1 initialized successfully\n");
 +
++	rpi_register_power_button();
++
 +	return 0;
 +}
 +#endif
@@ -425,7 +632,7 @@ index b0a1484c0fa..18fec0bc163 100644
  }
  
  static bool is_rpi3(void)
-@@ -681,30 +740,33 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
+@@ -681,30 +909,33 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
  	struct {
  		const char *fdt_compatible;
  		const char *acpi_scope;
@@ -474,7 +681,7 @@ index b0a1484c0fa..18fec0bc163 100644
  		    (is_rpi3() && !map[i].on_rpi3)) {
  			enabled = false;
  		} else {
-@@ -743,7 +805,7 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
+@@ -743,7 +974,7 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
  	acpigen_write_name_integer(ctx, "_STA", enabled ? 0xf : 0);
  	acpigen_pop_len(ctx);
  
@@ -494,8 +701,83 @@ index 9ac9d6768ca..2d1273a5aee 100644
 -boot_targets=mmc usb pxe dhcp
 +boot_targets=usb0 mmc nvme
 +bootmeths=extlinux efi script pxe efi_mgr
+diff --git a/cmd/Kconfig b/cmd/Kconfig
+index 7bbeaad04ff..0ceb11f35eb 100644
+--- a/cmd/Kconfig
++++ b/cmd/Kconfig
+@@ -503,6 +503,15 @@ config CMD_BOOTEFI_HELLO
+ 	  for testing that EFI is working at a basic level, and for bringing
+ 	  up EFI support on a new architecture.
+ 
++config CMD_BOOTEFI_IPXE
++	bool "Allow booting an embedded iPXE EFI binary"
++	depends on CMD_BOOTEFI_BINARY
++	help
++	  This embeds a pre-built iPXE EFI binary into U-Boot so that it
++	  can be launched with 'bootefi ipxe' without requiring any storage
++	  device. The path to the iPXE .efi file is set via
++	  BOOTEFI_IPXE_FILE in the UEFI configuration.
++
+ source "lib/efi_selftest/Kconfig"
+ endif
+ 
+diff --git a/cmd/bootefi.c b/cmd/bootefi.c
+index 85f41c3b0a0..6dc6c98b4c1 100644
+--- a/cmd/bootefi.c
++++ b/cmd/bootefi.c
+@@ -203,6 +203,11 @@ static int do_bootefi(struct cmd_tbl *cmdtp, int flag, int argc,
+ 		size = __efi_helloworld_end - __efi_helloworld_begin;
+ 		/* TODO: not sure calling clear function is necessary */
+ 		efi_clear_bootdev();
++	} else if (IS_ENABLED(CONFIG_CMD_BOOTEFI_IPXE) &&
++		   !strcmp(argv[1], "ipxe")) {
++		image_buf = __efi_ipxe_begin;
++		size = __efi_ipxe_end - __efi_ipxe_begin;
++		efi_clear_bootdev();
+ 	} else {
+ 		addr = strtoul(argv[1], NULL, 16);
+ 		/* Check that a numeric value was passed */
+@@ -244,6 +249,10 @@ U_BOOT_LONGHELP(bootefi,
+ 	"bootefi hello\n"
+ 	"  - boot a sample Hello World application stored within U-Boot\n"
+ #endif
++#ifdef CONFIG_CMD_BOOTEFI_IPXE
++	"bootefi ipxe\n"
++	"  - boot the embedded iPXE EFI binary stored within U-Boot\n"
++#endif
+ #ifdef CONFIG_CMD_BOOTEFI_SELFTEST
+ 	"bootefi selftest [fdt address]\n"
+ 	"  - boot an EFI selftest application stored within U-Boot\n"
+diff --git a/cmd/bootmenu.c b/cmd/bootmenu.c
+index d3108778c6f..1e31b62ee99 100644
+--- a/cmd/bootmenu.c
++++ b/cmd/bootmenu.c
+@@ -581,10 +581,23 @@ static enum bootmenu_ret bootmenu_show(int uefi, int delay)
+ 	/* Default menu entry is always first */
+ 	menu_default_set(menu, "0");
+ 
++	/* Drain any stale input (e.g. terminal CPR responses) */
++	while (tstc())
++		getchar();
++
+ 	puts(ANSI_CURSOR_HIDE);
+ 	puts(ANSI_CLEAR_CONSOLE);
+ 	printf(ANSI_CURSOR_POSITION, 1, 1);
+ 
++	/*
++	 * Allow time for the terminal to process ANSI sequences and
++	 * flush any response characters (e.g. CPR replies) before
++	 * the menu starts reading input.
++	 */
++	mdelay(100);
++	while (tstc())
++		getchar();
++
+ 	init = 1;
+ 
+ 	if (menu_get_choice(menu, &choice) == 1) {
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
-index 69e8e72c5d7..b2a401ed945 100644
+index 69e8e72c5d7..c48641b4036 100644
 --- a/configs/rpi_arm64_defconfig
 +++ b/configs/rpi_arm64_defconfig
 @@ -4,7 +4,7 @@ CONFIG_ARCH_BCM283X=y
@@ -548,7 +830,7 @@ index 69e8e72c5d7..b2a401ed945 100644
  CONFIG_SYS_DFU_DATA_BUF_SIZE=0x100000
  CONFIG_SYS_DFU_MAX_FILE_SIZE=0x200000
  CONFIG_BCM2835_GPIO=y
-@@ -65,3 +80,37 @@ CONFIG_VIDEO_BCM2835=y
+@@ -65,3 +80,47 @@ CONFIG_VIDEO_BCM2835=y
  CONFIG_CONSOLE_SCROLL_LINES=10
  CONFIG_PHYS_TO_BUS=y
  # CONFIG_HEXDUMP is not set
@@ -560,7 +842,7 @@ index 69e8e72c5d7..b2a401ed945 100644
 +CONFIG_CLK=y
 +CONFIG_SYS_PCI_64BIT=y
 +CONFIG_MACB=y
-+# Enable NVME
++# NVME
 +CONFIG_NVME_PCI=y
 +CONFIG_CMD_NVME=y
 +CONFIG_NVME=y
@@ -568,6 +850,15 @@ index 69e8e72c5d7..b2a401ed945 100644
 +CONFIG_CMD_USB_MASS_STORAGE=y
 +CONFIG_USB_DWC3=y
 +CONFIG_USB_XHCI_DWC3=y
++# Power management support
++CONFIG_ARM_SMCCC=y
++CONFIG_SYSRESET=y
++CONFIG_SYSRESET_PSCI=y
++CONFIG_SYSRESET_CMD_POWEROFF=y
++CONFIG_CMD_POWEROFF=y
++CONFIG_BUTTON=y
++CONFIG_BUTTON_GPIO=y
++CONFIG_CYCLIC=y
 +# Boot config
 +CONFIG_BOOTSTD=y
 +CONFIG_BOOTMETH_DISTRO=n
@@ -578,6 +869,7 @@ index 69e8e72c5d7..b2a401ed945 100644
 +CONFIG_PXE_UTILS=n
 +# Disable EFI bootmanager (reserves memory on 0x00080000 -> prevents continuing after being successful)
 +CONFIG_CMD_BOOTEFI_BOOTMGR=y
++CONFIG_CMD_BOOTEFI_IPXE=y
 +# Expo Menu
 +CONFIG_BOOTSTD_FULL=y
 +CONFIG_BOOTSTD_BOOTCOMMAND=y
@@ -942,10 +1234,26 @@ index fa893485a09..13f3ca15998 100644
  	return addr.phys_hi & 0xff00;
  }
 diff --git a/drivers/gpio/Kconfig b/drivers/gpio/Kconfig
-index 1484dd3504c..84fcae32be2 100644
+index 1484dd3504c..b3cfca41862 100644
 --- a/drivers/gpio/Kconfig
 +++ b/drivers/gpio/Kconfig
-@@ -413,6 +413,14 @@ config RCAR_GPIO
+@@ -142,6 +142,15 @@ config BCM2835_GPIO
+ 	bool "BCM2835 GPIO driver"
+ 	depends on DM_GPIO && ARCH_BCM283X
+ 
++config BRCMSTB_GPIO
++	bool "Broadcom STB UPG GIO GPIO driver"
++	depends on DM_GPIO
++	help
++	  Support for the Broadcom STB "UPG GIO" GPIO controller found in
++	  BCM2712 (Raspberry Pi 5) and other Broadcom STB SoCs. This driver
++	  handles the SoC-level GIO and GIO_AON GPIO banks which are used
++	  for power button input, SD card detect, and other board functions.
++
+ config BCM6345_GPIO
+ 	bool "BCM6345 GPIO driver"
+ 	depends on DM_GPIO && (ARCH_BMIPS || BCM6856 || \
+@@ -413,6 +422,14 @@ config RCAR_GPIO
  	help
  	  This driver supports the GPIO banks on Renesas R-Car SoCs.
  
@@ -961,7 +1269,7 @@ index 1484dd3504c..84fcae32be2 100644
  	bool "Renesas RZ/A1 GPIO driver"
  	depends on DM_GPIO && RZA1
 diff --git a/drivers/gpio/Makefile b/drivers/gpio/Makefile
-index fec258f59f5..bd5dca3c312 100644
+index fec258f59f5..ce8629a6172 100644
 --- a/drivers/gpio/Makefile
 +++ b/drivers/gpio/Makefile
 @@ -35,6 +35,7 @@ obj-$(CONFIG_NPCM_SGPIO)	+= npcm_sgpio.o
@@ -972,6 +1280,233 @@ index fec258f59f5..bd5dca3c312 100644
  obj-$(CONFIG_RZA1_GPIO)		+= gpio-rza1.o
  obj-$(CONFIG_S5P)		+= s5p_gpio.o
  obj-$(CONFIG_SANDBOX_GPIO)	+= sandbox.o sandbox_test.o
+@@ -49,6 +50,7 @@ obj-$(CONFIG_MPC83XX_SPISEL_BOOT)	+= mpc83xx_spisel_boot.o
+ obj-$(CONFIG_SH_GPIO_PFC)	+= sh_pfc.o
+ obj-$(CONFIG_OMAP_GPIO)	+= omap_gpio.o
+ obj-$(CONFIG_BCM2835_GPIO)	+= bcm2835_gpio.o
++obj-$(CONFIG_BRCMSTB_GPIO)	+= brcmstb_gpio.o
+ obj-$(CONFIG_XILINX_GPIO)	+= xilinx_gpio.o
+ obj-$(CONFIG_SUNXI_GPIO)	+= sunxi_gpio.o
+ obj-$(CONFIG_LPC32XX_GPIO)	+= lpc32xx_gpio.o
+diff --git a/drivers/gpio/brcmstb_gpio.c b/drivers/gpio/brcmstb_gpio.c
+new file mode 100644
+index 00000000000..a113c7966c2
+--- /dev/null
++++ b/drivers/gpio/brcmstb_gpio.c
+@@ -0,0 +1,213 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * Broadcom STB "UPG GIO" GPIO controller driver
++ *
++ * Supports the brcm,bcm7445-gpio / brcm,brcmstb-gpio controllers found
++ * in BCM2712 (Raspberry Pi 5) and other Broadcom STB SoCs.
++ *
++ * Based on the Linux gpio-brcmstb.c driver and the U-Boot bcm2835_gpio.c.
++ */
++
++#include <dm.h>
++#include <errno.h>
++#include <asm/gpio.h>
++#include <asm/io.h>
++#include <dm/device_compat.h>
++#include <dm/read.h>
++
++/* Per-bank register offsets (each bank occupies 0x20 bytes) */
++#define GIO_BANK_SIZE	0x20
++#define GIO_REG_ODEN	0x00	/* open-drain enable */
++#define GIO_REG_DATA	0x04	/* data (read = pin level, write = output) */
++#define GIO_REG_IODIR	0x08	/* I/O direction: 1 = input, 0 = output */
++#define GIO_REG_EC	0x0c	/* edge configuration */
++#define GIO_REG_EI	0x10	/* edge interrupt enable */
++#define GIO_REG_MASK	0x14	/* interrupt mask */
++#define GIO_REG_LEVEL	0x18	/* level interrupt */
++#define GIO_REG_STAT	0x1c	/* interrupt status */
++
++#define MAX_BANKS	4
++
++struct brcmstb_gpio_priv {
++	void __iomem *base;
++	int num_banks;
++	u32 bank_widths[MAX_BANKS];
++};
++
++static int brcmstb_gpio_to_bank(struct brcmstb_gpio_priv *priv,
++				unsigned int gpio, unsigned int *bit)
++{
++	int bank;
++	unsigned int offset = gpio;
++
++	for (bank = 0; bank < priv->num_banks; bank++) {
++		if (offset < priv->bank_widths[bank]) {
++			*bit = offset;
++			return bank;
++		}
++		offset -= priv->bank_widths[bank];
++	}
++
++	return -EINVAL;
++}
++
++static int brcmstb_gpio_direction_input(struct udevice *dev, unsigned int gpio)
++{
++	struct brcmstb_gpio_priv *priv = dev_get_priv(dev);
++	unsigned int bit;
++	int bank;
++	u32 val;
++
++	bank = brcmstb_gpio_to_bank(priv, gpio, &bit);
++	if (bank < 0)
++		return bank;
++
++	val = readl(priv->base + bank * GIO_BANK_SIZE + GIO_REG_IODIR);
++	val |= BIT(bit);
++	writel(val, priv->base + bank * GIO_BANK_SIZE + GIO_REG_IODIR);
++
++	return 0;
++}
++
++static int brcmstb_gpio_direction_output(struct udevice *dev,
++					 unsigned int gpio, int value)
++{
++	struct brcmstb_gpio_priv *priv = dev_get_priv(dev);
++	unsigned int bit;
++	int bank;
++	u32 val;
++
++	bank = brcmstb_gpio_to_bank(priv, gpio, &bit);
++	if (bank < 0)
++		return bank;
++
++	/* Set the output value first */
++	val = readl(priv->base + bank * GIO_BANK_SIZE + GIO_REG_DATA);
++	if (value)
++		val |= BIT(bit);
++	else
++		val &= ~BIT(bit);
++	writel(val, priv->base + bank * GIO_BANK_SIZE + GIO_REG_DATA);
++
++	/* Then set direction to output */
++	val = readl(priv->base + bank * GIO_BANK_SIZE + GIO_REG_IODIR);
++	val &= ~BIT(bit);
++	writel(val, priv->base + bank * GIO_BANK_SIZE + GIO_REG_IODIR);
++
++	return 0;
++}
++
++static int brcmstb_gpio_get_value(struct udevice *dev, unsigned int gpio)
++{
++	struct brcmstb_gpio_priv *priv = dev_get_priv(dev);
++	unsigned int bit;
++	int bank;
++	u32 val;
++
++	bank = brcmstb_gpio_to_bank(priv, gpio, &bit);
++	if (bank < 0)
++		return bank;
++
++	val = readl(priv->base + bank * GIO_BANK_SIZE + GIO_REG_DATA);
++
++	return !!(val & BIT(bit));
++}
++
++static int brcmstb_gpio_set_value(struct udevice *dev, unsigned int gpio,
++				  int value)
++{
++	struct brcmstb_gpio_priv *priv = dev_get_priv(dev);
++	unsigned int bit;
++	int bank;
++	u32 val;
++
++	bank = brcmstb_gpio_to_bank(priv, gpio, &bit);
++	if (bank < 0)
++		return bank;
++
++	val = readl(priv->base + bank * GIO_BANK_SIZE + GIO_REG_DATA);
++	if (value)
++		val |= BIT(bit);
++	else
++		val &= ~BIT(bit);
++	writel(val, priv->base + bank * GIO_BANK_SIZE + GIO_REG_DATA);
++
++	return 0;
++}
++
++static int brcmstb_gpio_get_function(struct udevice *dev, unsigned int gpio)
++{
++	struct brcmstb_gpio_priv *priv = dev_get_priv(dev);
++	unsigned int bit;
++	int bank;
++	u32 val;
++
++	bank = brcmstb_gpio_to_bank(priv, gpio, &bit);
++	if (bank < 0)
++		return GPIOF_UNKNOWN;
++
++	val = readl(priv->base + bank * GIO_BANK_SIZE + GIO_REG_IODIR);
++
++	return (val & BIT(bit)) ? GPIOF_INPUT : GPIOF_OUTPUT;
++}
++
++static const struct dm_gpio_ops brcmstb_gpio_ops = {
++	.direction_input	= brcmstb_gpio_direction_input,
++	.direction_output	= brcmstb_gpio_direction_output,
++	.get_value		= brcmstb_gpio_get_value,
++	.set_value		= brcmstb_gpio_set_value,
++	.get_function		= brcmstb_gpio_get_function,
++};
++
++static int brcmstb_gpio_probe(struct udevice *dev)
++{
++	struct brcmstb_gpio_priv *priv = dev_get_priv(dev);
++	struct gpio_dev_priv *uc_priv = dev_get_uclass_priv(dev);
++	int ret, num_banks, i;
++	u32 total_gpios = 0;
++
++	priv->base = dev_remap_addr(dev);
++	if (!priv->base)
++		return -EINVAL;
++
++	num_banks = dev_read_size(dev, "brcm,gpio-bank-widths");
++	if (num_banks < 0)
++		return num_banks;
++	num_banks /= sizeof(u32);
++
++	if (num_banks > MAX_BANKS) {
++		dev_err(dev, "too many banks: %d (max %d)\n",
++			num_banks, MAX_BANKS);
++		return -EINVAL;
++	}
++
++	ret = dev_read_u32_array(dev, "brcm,gpio-bank-widths",
++				 priv->bank_widths, num_banks);
++	if (ret)
++		return ret;
++
++	priv->num_banks = num_banks;
++
++	for (i = 0; i < num_banks; i++)
++		total_gpios += priv->bank_widths[i];
++
++	uc_priv->gpio_count = total_gpios;
++	uc_priv->bank_name = dev_read_name(dev);
++
++	return 0;
++}
++
++static const struct udevice_id brcmstb_gpio_ids[] = {
++	{ .compatible = "brcm,bcm7445-gpio" },
++	{ .compatible = "brcm,brcmstb-gpio" },
++	{ }
++};
++
++U_BOOT_DRIVER(brcmstb_gpio) = {
++	.name		= "brcmstb_gpio",
++	.id		= UCLASS_GPIO,
++	.of_match	= brcmstb_gpio_ids,
++	.ops		= &brcmstb_gpio_ops,
++	.probe		= brcmstb_gpio_probe,
++	.priv_auto	= sizeof(struct brcmstb_gpio_priv),
++};
 diff --git a/drivers/gpio/rp1_gpio.c b/drivers/gpio/rp1_gpio.c
 new file mode 100644
 index 00000000000..a64af18fcf6
@@ -3848,6 +4383,19 @@ index 0c81e606622..0e0cc1979eb 100644
  	{ .compatible = "brcm,bcm2708-fb" },
  #if !IS_ENABLED(CONFIG_VIDEO_DT_SIMPLEFB)
  	{ .compatible = "simple-framebuffer" },
+diff --git a/include/asm-generic/sections.h b/include/asm-generic/sections.h
+index d59787948fd..a4e87859317 100644
+--- a/include/asm-generic/sections.h
++++ b/include/asm-generic/sections.h
+@@ -26,6 +26,8 @@ extern char __start_rodata[], __end_rodata[];
+ extern char __start_data[], __end_data[];
+ extern char __efi_helloworld_begin[];
+ extern char __efi_helloworld_end[];
++extern char __efi_ipxe_begin[];
++extern char __efi_ipxe_end[];
+ extern char __efi_var_file_begin[];
+ extern char __efi_var_file_end[];
+ extern char __efi_capsule_sig_begin[];
 diff --git a/include/broadcom/bcm_board_types.h b/include/broadcom/bcm_board_types.h
 new file mode 100644
 index 00000000000..3508b40fa9c
@@ -4192,3 +4740,77 @@ index cfff275daba..6bc3abe4a93 100644
  #define PCI_VENDOR_ID_TEHUTI		0x1fc9
  #define PCI_DEVICE_ID_TEHUTI_3009	0x3009
  #define PCI_DEVICE_ID_TEHUTI_3010	0x3010
+diff --git a/lib/efi_loader/Kconfig b/lib/efi_loader/Kconfig
+index b5f81e0ff53..9ba048141e6 100644
+--- a/lib/efi_loader/Kconfig
++++ b/lib/efi_loader/Kconfig
+@@ -622,6 +622,20 @@ config BOOTEFI_HELLO_COMPILE
+ 	  No additional space will be required in the resulting U-Boot binary
+ 	  when this option is enabled.
+ 
++config BOOTEFI_IPXE_FILE
++	string "Path to a pre-built iPXE EFI binary"
++	depends on CMD_BOOTEFI_IPXE
++	default "firmware/ipxe.efi"
++	help
++	  Path to a pre-built iPXE EFI binary to embed into U-Boot. The binary
++	  will be included in the U-Boot image and can be launched with
++	  'bootefi ipxe'. If a relative path is used, it is relative to the
++	  source directory.
++
++	  NOTE: Do not place the file in the source root or lib/efi_loader/
++	  as 'make clean' removes all *.efi files. Use a subdirectory such
++	  as firmware/ which is not affected by the clean rules.
++
+ config BOOTEFI_TESTAPP_COMPILE
+ 	bool "Compile an EFI test app for testing"
+ 	default y
+diff --git a/lib/efi_loader/Makefile b/lib/efi_loader/Makefile
+index d73ad43951b..793d9d3f519 100644
+--- a/lib/efi_loader/Makefile
++++ b/lib/efi_loader/Makefile
+@@ -24,6 +24,7 @@ apps-$(CONFIG_BOOTEFI_TESTAPP_COMPILE) += testapp
+ apps-y += dbginfodump
+ 
+ obj-$(CONFIG_CMD_BOOTEFI_HELLO) += helloworld_efi.o
++obj-$(CONFIG_CMD_BOOTEFI_IPXE) += ipxe_efi.o
+ obj-$(CONFIG_EFI_BOOTMGR) += efi_bootmgr.o
+ obj-$(CONFIG_EFI_BINARY_EXEC) += efi_bootbin.o
+ obj-y += efi_boottime.o
+@@ -77,6 +78,12 @@ obj-$(CONFIG_EFI_DEBUG_SUPPORT) += efi_debug_support.o
+ EFI_VAR_SEED_FILE := $(subst $\",,$(CONFIG_EFI_VAR_SEED_FILE))
+ $(obj)/efi_var_seed.o: $(srctree)/$(EFI_VAR_SEED_FILE)
+ 
++ifeq ($(CONFIG_CMD_BOOTEFI_IPXE),y)
++IPXE_EFI_FILE := $(subst $\",,$(CONFIG_BOOTEFI_IPXE_FILE))
++$(obj)/ipxe_efi.o: $(srctree)/$(IPXE_EFI_FILE)
++asflags-y += -DIPXE_EFI_PATH=\"$(srctree)/$(IPXE_EFI_FILE)\"
++endif
++
+ ifeq ($(CONFIG_EFI_CAPSULE_AUTHENTICATE),y)
+ capsule_crt_path=($(subst $(quote),,$(CONFIG_EFI_CAPSULE_CRT_FILE)))
+ capsule_crt_full=$(srctree)/$(subst $(quote),,$(CONFIG_EFI_CAPSULE_CRT_FILE))
+diff --git a/lib/efi_loader/ipxe_efi.S b/lib/efi_loader/ipxe_efi.S
+new file mode 100644
+index 00000000000..29c0a87e944
+--- /dev/null
++++ b/lib/efi_loader/ipxe_efi.S
+@@ -0,0 +1,18 @@
++/* SPDX-License-Identifier: GPL-2.0+ */
++/*
++ * Embedded iPXE EFI binary
++ *
++ * Wraps a pre-built iPXE EFI binary into U-Boot's .rodata so it can
++ * be launched with 'bootefi ipxe' without any storage device.
++ */
++
++#include <config.h>
++
++.section .rodata.ipxe_efi.init,"a"
++.balign 16
++.global __efi_ipxe_begin
++__efi_ipxe_begin:
++.incbin IPXE_EFI_PATH
++.global __efi_ipxe_end
++__efi_ipxe_end:
++.balign 16

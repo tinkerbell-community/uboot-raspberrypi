@@ -79,7 +79,9 @@ jobs:
           echo "Final release version: $RELEASE_VERSION"
 
   build-uboot:
-    needs: determine-version
+    needs:
+      - determine-version
+      - build-ipxe-arm64
     runs-on: ubuntu-24.04-arm
     strategy:
       matrix:
@@ -111,10 +113,20 @@ jobs:
           packages: build-essential git bison flex bc libssl-dev libgnutls28-dev device-tree-compiler
           version: 1.0
 
+      - name: Download iPXE ARM64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: ipxe-arm64-binary
+          path: ipxe
+
       - name: Configure U-Boot for Raspberry Pi 4 ARM64
         working-directory: u-boot
         run: |
           patch -p1 < ${{ github.workspace }}/src/patches/rpi_arm64_defconfig.patch
+
+          mkdir -p firmware
+          cp -v ../ipxe/snp.efi ./firmware/ipxe.efi
+
           make rpi_arm64_defconfig LOCALVERSION_AUTO=n
 
           echo "CONFIG_SERVERIP_FROM_PROXYDHCP=y" >> .config
