@@ -496,13 +496,9 @@ jobs:
           # Built from raspberrypi/linux with upstream-compatibility patches applied
           echo "Copying patched kernel device tree files..."
           mkdir -p build/broadcom
-          cp artifacts/kernel-dts/*.dtb build/broadcom/
-          for dtb in build/broadcom/*.dtb; do
-            echo "Processing $dtb"
-            if [ -f "$dtb" ]; then
-              ln -s "$dtb" "./build/$(basename "${dtb}")"
-            fi
-          done
+          cp -r artifacts/kernel-dts/*.dtb build/broadcom/
+          cp -r artifacts/kernel-dts/*.dtb build/
+
           mkdir -p build/overlays
           cp -r artifacts/kernel-dts/overlays/. build/overlays/
           echo "Overlay files:"
