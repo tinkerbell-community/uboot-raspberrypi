@@ -517,7 +517,7 @@ index be6bb6d4535..e8061798e4d 100644
  	bool "Boot method using QEMU parameters"
  	depends on QFW
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
-index 69e8e72c5d7..b8207b25d0e 100644
+index 69e8e72c5d7..a2ffac283ca 100644
 --- a/configs/rpi_arm64_defconfig
 +++ b/configs/rpi_arm64_defconfig
 @@ -4,7 +4,7 @@ CONFIG_ARCH_BCM283X=y
@@ -573,7 +573,7 @@ index 69e8e72c5d7..b8207b25d0e 100644
  CONFIG_SYS_DFU_DATA_BUF_SIZE=0x100000
  CONFIG_SYS_DFU_MAX_FILE_SIZE=0x200000
  CONFIG_BCM2835_GPIO=y
-@@ -65,3 +83,51 @@ CONFIG_VIDEO_BCM2835=y
+@@ -65,3 +83,44 @@ CONFIG_VIDEO_BCM2835=y
  CONFIG_CONSOLE_SCROLL_LINES=10
  CONFIG_PHYS_TO_BUS=y
  # CONFIG_HEXDUMP is not set
@@ -605,13 +605,6 @@ index 69e8e72c5d7..b8207b25d0e 100644
 +CONFIG_CMD_BOOTMENU=y
 +CONFIG_CMD_BOOTFLOW_FULL=y
 +CONFIG_AUTOBOOT_MENU_SHOW=y
-+# Early serial debug (pre-DM, hardcoded PL011 at 0x7d001000)
-+# CONFIG_DEBUG_UART=y
-+# CONFIG_DEBUG_UART_PL011=y
-+# CONFIG_DEBUG_UART_BASE=0x7d001000
-+# CONFIG_DEBUG_UART_CLOCK=48000000
-+# CONFIG_DEBUG_UART_SKIP_INIT=y
-+# CONFIG_DEBUG_UART_ANNOUNCE=y
 +# PXE
 +CONFIG_DHCP_PXE_CLIENTARCH=0x11 # EFI ARM64
 +CONFIG_BOOTP_VCI_STRING="PXEClient" # Vendor Class Identifier (60)
