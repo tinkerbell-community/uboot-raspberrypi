@@ -79,9 +79,7 @@ jobs:
           echo "Final release version: $RELEASE_VERSION"
 
   build-uboot:
-    needs:
-      - determine-version
-      - build-ipxe-arm64
+    needs: determine-version
     runs-on: ubuntu-24.04-arm
     strategy:
       matrix:
@@ -113,47 +111,12 @@ jobs:
           packages: build-essential git bison flex bc libssl-dev libgnutls28-dev device-tree-compiler
           version: 1.0
 
-      - name: Download iPXE ARM64 binary
-        uses: actions/download-artifact@v4
-        with:
-          name: ipxe-arm64-binary
-          path: ipxe
-
       - name: Configure U-Boot for Raspberry Pi 4 ARM64
         working-directory: u-boot
         run: |
           patch -p1 < ${{ github.workspace }}/src/patches/rpi_arm64_defconfig.patch
 
-          mkdir -p firmware
-          cp -v ../ipxe/snp.efi ./firmware/ipxe.efi
-
           make rpi_arm64_defconfig LOCALVERSION_AUTO=n
-
-          echo "CONFIG_SERVERIP_FROM_PROXYDHCP=y" >> .config
-          echo "CONFIG_BOOTP_SEND_HOSTNAME=y" >> .config
-          echo "CONFIG_BOOTP_DNS2=y" >> .config
-          echo "CONFIG_BOOTP_NTPSERVER=y" >> .config
-
-          # SMBIOS: generates System Management BIOS tables passed via UEFI config table to the OS.
-          # Talos Linux reads SMBIOS Type 1 Serial Number as the NoCloud datasource string:
-          #   serial# = "ds=nocloud-net;s=http://<server>/configs/;h=<hostname>"
-          # Set via: fw_setenv -c /boot/fw_env.config serial# "ds=nocloud-net;s=http://..."
-          echo "CONFIG_SYSINFO=y" >> .config
-          echo "CONFIG_SYSINFO_SMBIOS=y" >> .config
-          echo "CONFIG_GENERATE_SMBIOS_TABLE=y" >> .config
-          echo "CONFIG_CMD_SMBIOS=y" >> .config
-
-          # DEBUG_UART: pre-DM serial output for boot hang diagnosis.
-          # Uses hardcoded PL011 at 0x7d001000 (RPi 5 UART).
-          # SKIP_INIT=y: firmware already initialized the UART.
-          # ANNOUNCE=y: prints "debug UART enabled" at very first opportunity.
-          # Remove this block once boot is confirmed working.
-          echo "CONFIG_DEBUG_UART=y" >> .config
-          echo "CONFIG_DEBUG_UART_PL011=y" >> .config
-          echo "CONFIG_DEBUG_UART_BASE=0x7d001000" >> .config
-          echo "CONFIG_DEBUG_UART_CLOCK=48000000" >> .config
-          echo "CONFIG_DEBUG_UART_SKIP_INIT=y" >> .config
-          echo "CONFIG_DEBUG_UART_ANNOUNCE=y" >> .config
 
       - name: Build U-Boot
         working-directory: u-boot
@@ -204,135 +167,6 @@ jobs:
             firmware/boot/*.dat
             firmware/boot/*.bin
           retention-days: 1
-          if-no-files-found: error
-
-  build-ipxe-arm64:
-    needs: determine-version
-    runs-on: ubuntu-24.04-arm
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout repository
-        id: checkout
-        uses: actions/checkout@v4
-        with:
-          repository: ipxe/ipxe
-          ref: master
-          path: ipxe
-          fetch-depth: 1
-
-      - name: Cache and install build dependencies
-        uses: awalsh128/cache-apt-pkgs-action@latest
-        with:
-          packages: build-essential git liblzma-dev
-          version: 1.0
-
-      - name: Get iPXE commit hash
-        id: ipxe_commit
-        working-directory: ipxe
-        run: |
-          commit_short=$(git rev-parse --short=7 HEAD)
-          echo "commit_short=${commit_short}" >> $GITHUB_OUTPUT
-          echo "iPXE commit: ${commit_short}"
-
-      - name: Build iPXE for ARM64 Raspberry Pi
-        working-directory: ipxe/src
-        run: |
-          # Create embedded script
-          cat <<EOF | tee embedded.ipxe
-          #!ipxe
-
-          set user-class Tinkerbell
-          echo Welcome to Neverland!
-
-          :iterate-interfaces
-          set idx:int32 0
-          :interfaces-loop
-          isset \${net\${idx}/ip} && goto interfaces-loop-done || iseq \${idx} 50 && goto autoboot || inc idx && goto interfaces-loop
-
-          :interfaces-loop-done
-          echo Booting from net\${idx}...
-          set retry-max:int32 2
-          set count:int32 1
-          :retry-loop1
-          echo trying dhcp ( attempt \${count}/\${retry-max} )
-          dhcp net\${idx} && goto done1 || iseq \${count} \${retry-max} && goto done1 || inc count && goto retry-loop1
-          :done1
-          autoboot net\${idx} || exit 1
-
-          :autoboot
-          set retry-max:int32 2
-          set count:int32 1
-          :retry-loop2
-          echo trying dhcp ( attempt \${count}/\${retry-max} )
-          dhcp && goto done2 || iseq \${count} \${retry-max} && goto done2 || inc count && goto retry-loop2
-          :done2
-          autoboot || exit 1
-          EOF
-
-          # Create config file to enable TFTP
-          cat <<EOF | tee config/rpi/general.h
-          #define CERT_CMD              /* Certificate management commands */
-          #define DIGEST_CMD            /* Image crypto digest commands */
-          #define DOWNLOAD_PROTO_TFTP   /* Trivial File Transfer Protocol */
-          #define DOWNLOAD_PROTO_HTTPS  /* Secure Hypertext Transfer Protocol */
-          #define IMAGE_TRUST_CMD       /* Image trust management commands */
-          #define NET_PROTO_IPV6        /* IPv6 protocol */
-          #define NSLOOKUP_CMD          /* DNS resolving command */
-          #define NTP_CMD               /* NTP commands */
-          #define NVO_CMD               /* Non-volatile option storage commands */
-          #define PARAM_CMD             /* params and param commands, for POSTing to tink */
-          #define PING_CMD              /* Ping command */
-          #define POWEROFF_CMD          /* Power off command */
-          #define REBOOT_CMD            /* Reboot command */
-          #define SANBOOT_PROTO_HTTP    /* HTTP SAN protocol */
-          #define VLAN_CMD              /* VLAN commands */
-          #define DOWNLOAD_PROTO_NFS    /* NFS */
-          #define ROUTE_CMD             /* Routing table management commands */
-          #define NET_PROTO_LACP        /* Link Aggregation control protocol */
-
-          #undef CRYPTO_80211_WEP       /* WEP encryption (deprecated and insecure!) */
-          #undef CRYPTO_80211_WPA2      /* Add support for stronger WPA cryptography */
-          #undef CRYPTO_80211_WPA       /* WPA Personal, authenticating with passphrase */
-          #undef FCMGMT_CMD             /* Fibre Channel management commands */
-          #undef IBMGMT_CMD             /* Infiniband management commands */
-          #undef IMAGE_PNG              /* PNG image support */
-          #undef IMAGE_PNM              /* PNM image support */
-          #undef IWMGMT_CMD             /* Wireless interface management commands */
-          #undef NET_PROTO_STP          /* Spanning Tree protocol */
-          #undef VNIC_IPOIB             /* Infiniband IPoIB virtual NICs */
-
-          //defined in config/defaults/{efi,pcbios}.h and we don't want
-          #undef SANBOOT_PROTO_AOE      /* AoE protocol */
-          #undef SANBOOT_PROTO_FCP      /* Fibre Channel protocol */
-          #undef SANBOOT_PROTO_IB_SRP   /* Infiniband SCSI RDMA protocol */
-          #undef SANBOOT_PROTO_ISCSI    /* iSCSI protocol */
-          #undef USB_EFI                /* Provide EFI_USB_IO_PROTOCOL interface */
-          #undef USB_HCD_EHCI           /* EHCI USB host controller */
-          #undef USB_HCD_UHCI           /* UHCI USB host controller */
-          #undef USB_HCD_XHCI           /* xHCI USB host controller */
-          #undef USB_KEYBOARD           /* USB keyboards */
-
-          #undef NAP_EFIX86
-          #undef NAP_EFIARM
-          #define NAP_NULL
-          EOF
-
-          cat <<EOF | tee config/rpi/crypto.h
-          #undef OCSP_CHECK
-          EOF
-
-          # Build with proper version variables
-          make VERSION_MAJOR=1 VERSION_MINOR=21 VERSION_PATCH=1 EXTRAVERSION="+ (${{ steps.ipxe_commit.outputs.commit_short }})" CONFIG=rpi EMBED=embedded.ipxe -j $(nproc) bin-arm64-efi/snp.efi
-          ls -lah bin-arm64-efi/snp.efi
-
-      - name: Upload iPXE binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: ipxe-arm64-binary
-          path: ipxe/src/bin-arm64-efi/snp.efi
-          retention-days: 1
-          overwrite: true
           if-no-files-found: error
 
   prepare-config:
@@ -449,7 +283,7 @@ jobs:
           if-no-files-found: error
 
   build-image:
-    needs: [determine-version, build-uboot, checkout-firmware, build-ipxe-arm64, prepare-config, build-kernel-dtbs]
+    needs: [determine-version, build-uboot, checkout-firmware,prepare-config, build-kernel-dtbs]
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: write
@@ -515,10 +349,6 @@ jobs:
           cp -r artifacts/kernel-dts/overlays/. build/overlays/
           echo "Overlay files:"
           ls -lah build/overlays/
-
-          # Copy iPXE binary
-          mkdir -p build/EFI/BOOT
-          cp artifacts/ipxe-arm64-binary/snp.efi build/EFI/BOOT/BOOTAA64.EFI
 
           echo "Build directory contents:"
           ls -lah build/
@@ -633,7 +463,6 @@ jobs:
           - EFI boot support
           - USB storage boot
           - NVMe boot support (with patches)
-          - iPXE network boot (snp.efi included)
           - Custom boot command for network-first boot
           - SMBIOS table generation (UEFI config table passed to OS)
           - U-Boot environment stored in FAT file (\`/boot/uboot.env\`)

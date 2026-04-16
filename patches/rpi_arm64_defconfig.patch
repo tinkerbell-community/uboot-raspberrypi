@@ -484,7 +484,7 @@ index b0a1484c0fa..18fec0bc163 100644
  		node = fdt_node_offset_by_compatible(gd->fdt_blob, -1, "brcm,bcm2711-emmc2");
  		if (node) {
 diff --git a/board/raspberrypi/rpi/rpi.env b/board/raspberrypi/rpi/rpi.env
-index 9ac9d6768ca..2d1273a5aee 100644
+index 9ac9d6768ca..9ffbf936fb9 100644
 --- a/board/raspberrypi/rpi/rpi.env
 +++ b/board/raspberrypi/rpi/rpi.env
 @@ -77,4 +77,5 @@ pxefile_addr_r=0x05500000
@@ -492,8 +492,8 @@ index 9ac9d6768ca..2d1273a5aee 100644
  ramdisk_addr_r=0x05700000
  
 -boot_targets=mmc usb pxe dhcp
-+boot_targets=usb0 mmc nvme
-+bootmeths=extlinux efi script pxe efi_mgr
++boot_targets=dhcp mmc nvme usb
++bootmeths=extlinux efi script efi_mgr
 diff --git a/boot/Kconfig b/boot/Kconfig
 index be6bb6d4535..e8061798e4d 100644
 --- a/boot/Kconfig
@@ -516,165 +516,8 @@ index be6bb6d4535..e8061798e4d 100644
  config BOOTMETH_QFW
  	bool "Boot method using QEMU parameters"
  	depends on QFW
-diff --git a/boot/Makefile b/boot/Makefile
-index 7fb56e7ef37..9b39580fbc1 100644
---- a/boot/Makefile
-+++ b/boot/Makefile
-@@ -38,6 +38,7 @@ obj-$(CONFIG_$(PHASE_)BOOTMETH_SANDBOX) += bootmeth_sandbox.o
- obj-$(CONFIG_$(PHASE_)BOOTMETH_SCRIPT) += bootmeth_script.o
- obj-$(CONFIG_$(PHASE_)CEDIT) += cedit.o
- obj-$(CONFIG_$(PHASE_)BOOTMETH_EFI_BOOTMGR) += bootmeth_efi_mgr.o
-+obj-$(CONFIG_$(PHASE_)BOOTMETH_IPXE) += bootmeth_ipxe.o
- 
- obj-$(CONFIG_$(PHASE_)OF_LIBFDT) += fdt_support.o
- obj-$(CONFIG_$(PHASE_)FDT_SIMPLEFB) += fdt_simplefb.o
-diff --git a/boot/bootmeth_ipxe.c b/boot/bootmeth_ipxe.c
-new file mode 100644
-index 00000000000..ba9aa1564fa
---- /dev/null
-+++ b/boot/bootmeth_ipxe.c
-@@ -0,0 +1,92 @@
-+// SPDX-License-Identifier: GPL-2.0+
-+/*
-+ * Bootmethod for embedded iPXE EFI binary
-+ *
-+ * Launches the iPXE EFI binary embedded in U-Boot's .rodata section
-+ * as a global bootmeth, similar to the EFI boot manager method.
-+ */
-+
-+#define LOG_CATEGORY UCLASS_BOOTSTD
-+
-+#include <bootdev.h>
-+#include <bootflow.h>
-+#include <bootmeth.h>
-+#include <dm.h>
-+#include <efi_loader.h>
-+#include <asm-generic/sections.h>
-+
-+static int ipxe_check(struct udevice *dev, struct bootflow_iter *iter)
-+{
-+	int ret;
-+
-+	ret = bootflow_iter_check_system(iter);
-+	if (ret)
-+		return log_msg_ret("sys", ret);
-+
-+	return 0;
-+}
-+
-+static int ipxe_read_bootflow(struct udevice *dev, struct bootflow *bflow)
-+{
-+	size_t size;
-+
-+	size = __efi_ipxe_end - __efi_ipxe_begin;
-+	if (!size)
-+		return log_msg_ret("empty", -EINVAL);
-+
-+	bflow->state = BOOTFLOWST_READY;
-+
-+	return 0;
-+}
-+
-+static int ipxe_read_file(struct udevice *dev, struct bootflow *bflow,
-+			  const char *file_path, ulong addr,
-+			  enum bootflow_img_t type, ulong *sizep)
-+{
-+	return -ENOSYS;
-+}
-+
-+static int ipxe_boot(struct udevice *dev, struct bootflow *bflow)
-+{
-+	efi_status_t ret;
-+
-+	ret = efi_binary_run(__efi_ipxe_begin,
-+			     __efi_ipxe_end - __efi_ipxe_begin,
-+			     EFI_FDT_USE_INTERNAL, NULL, 0);
-+	if (ret)
-+		return log_msg_ret("ipxe", -EIO);
-+
-+	return 0;
-+}
-+
-+static int bootmeth_ipxe_bind(struct udevice *dev)
-+{
-+	struct bootmeth_uc_plat *plat = dev_get_uclass_plat(dev);
-+
-+	plat->desc = "iPXE embedded EFI boot";
-+	plat->flags = BOOTMETHF_GLOBAL;
-+	plat->glob_prio = BOOTDEVP_6_NET_BASE;
-+
-+	return 0;
-+}
-+
-+static struct bootmeth_ops ipxe_bootmeth_ops = {
-+	.check		= ipxe_check,
-+	.read_bootflow	= ipxe_read_bootflow,
-+	.read_file	= ipxe_read_file,
-+	.boot		= ipxe_boot,
-+};
-+
-+static const struct udevice_id ipxe_bootmeth_ids[] = {
-+	{ .compatible = "u-boot,ipxe" },
-+	{ }
-+};
-+
-+/* '6' prefix gives it lower priority than efi (4) and efi_mgr (3) */
-+U_BOOT_DRIVER(bootmeth_6ipxe) = {
-+	.name		= "bootmeth_ipxe",
-+	.id		= UCLASS_BOOTMETH,
-+	.of_match	= ipxe_bootmeth_ids,
-+	.ops		= &ipxe_bootmeth_ops,
-+	.bind		= bootmeth_ipxe_bind,
-+};
-diff --git a/cmd/Kconfig b/cmd/Kconfig
-index 7bbeaad04ff..0ceb11f35eb 100644
---- a/cmd/Kconfig
-+++ b/cmd/Kconfig
-@@ -503,6 +503,15 @@ config CMD_BOOTEFI_HELLO
- 	  for testing that EFI is working at a basic level, and for bringing
- 	  up EFI support on a new architecture.
- 
-+config CMD_BOOTEFI_IPXE
-+	bool "Allow booting an embedded iPXE EFI binary"
-+	depends on CMD_BOOTEFI_BINARY
-+	help
-+	  This embeds a pre-built iPXE EFI binary into U-Boot so that it
-+	  can be launched with 'bootefi ipxe' without requiring any storage
-+	  device. The path to the iPXE .efi file is set via
-+	  BOOTEFI_IPXE_FILE in the UEFI configuration.
-+
- source "lib/efi_selftest/Kconfig"
- endif
- 
-diff --git a/cmd/bootefi.c b/cmd/bootefi.c
-index 85f41c3b0a0..6dc6c98b4c1 100644
---- a/cmd/bootefi.c
-+++ b/cmd/bootefi.c
-@@ -203,6 +203,11 @@ static int do_bootefi(struct cmd_tbl *cmdtp, int flag, int argc,
- 		size = __efi_helloworld_end - __efi_helloworld_begin;
- 		/* TODO: not sure calling clear function is necessary */
- 		efi_clear_bootdev();
-+	} else if (IS_ENABLED(CONFIG_CMD_BOOTEFI_IPXE) &&
-+		   !strcmp(argv[1], "ipxe")) {
-+		image_buf = __efi_ipxe_begin;
-+		size = __efi_ipxe_end - __efi_ipxe_begin;
-+		efi_clear_bootdev();
- 	} else {
- 		addr = strtoul(argv[1], NULL, 16);
- 		/* Check that a numeric value was passed */
-@@ -244,6 +249,10 @@ U_BOOT_LONGHELP(bootefi,
- 	"bootefi hello\n"
- 	"  - boot a sample Hello World application stored within U-Boot\n"
- #endif
-+#ifdef CONFIG_CMD_BOOTEFI_IPXE
-+	"bootefi ipxe\n"
-+	"  - boot the embedded iPXE EFI binary stored within U-Boot\n"
-+#endif
- #ifdef CONFIG_CMD_BOOTEFI_SELFTEST
- 	"bootefi selftest [fdt address]\n"
- 	"  - boot an EFI selftest application stored within U-Boot\n"
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
-index 69e8e72c5d7..59b49c10d72 100644
+index 69e8e72c5d7..3e832e6d5aa 100644
 --- a/configs/rpi_arm64_defconfig
 +++ b/configs/rpi_arm64_defconfig
 @@ -4,7 +4,7 @@ CONFIG_ARCH_BCM283X=y
@@ -730,7 +573,7 @@ index 69e8e72c5d7..59b49c10d72 100644
  CONFIG_SYS_DFU_DATA_BUF_SIZE=0x100000
  CONFIG_SYS_DFU_MAX_FILE_SIZE=0x200000
  CONFIG_BCM2835_GPIO=y
-@@ -65,3 +83,40 @@ CONFIG_VIDEO_BCM2835=y
+@@ -65,3 +83,51 @@ CONFIG_VIDEO_BCM2835=y
  CONFIG_CONSOLE_SCROLL_LINES=10
  CONFIG_PHYS_TO_BUS=y
  # CONFIG_HEXDUMP is not set
@@ -753,7 +596,6 @@ index 69e8e72c5d7..59b49c10d72 100644
 +# Boot config
 +CONFIG_BOOTSTD=y
 +CONFIG_BOOTMETH_EFILOADER=y
-+CONFIG_BOOTMETH_IPXE=y
 +CONFIG_PXE_UTILS=n
 +# Expo Menu
 +CONFIG_BOOTSTD_FULL=y
@@ -763,7 +605,6 @@ index 69e8e72c5d7..59b49c10d72 100644
 +CONFIG_CMD_BOOTMENU=y
 +CONFIG_CMD_BOOTFLOW_FULL=y
 +CONFIG_AUTOBOOT_MENU_SHOW=y
-+CONFIG_CMD_BOOTEFI_IPXE=y
 +# Early serial debug (pre-DM, hardcoded PL011 at 0x7d001000)
 +CONFIG_DEBUG_UART=y
 +CONFIG_DEBUG_UART_PL011=y
@@ -771,6 +612,20 @@ index 69e8e72c5d7..59b49c10d72 100644
 +CONFIG_DEBUG_UART_CLOCK=48000000
 +CONFIG_DEBUG_UART_SKIP_INIT=y
 +CONFIG_DEBUG_UART_ANNOUNCE=y
++# PXE
++CONFIG_DHCP_PXE_CLIENTARCH=0x11 # EFI ARM64
++CONFIG_BOOTP_VCI_STRING="PXEClient" # Vendor Class Identifier (60)
++CONFIG_BOOTP_PXE=y
++CONFIG_BOOTP_PXE_DHCP_OPTION=y
++CONFIG_BOOTP_MAY_FAIL=y
++CONFIG_SERVERIP_FROM_PROXYDHCP=y
++CONFIG_BOOTP_SEND_HOSTNAME=y
++CONFIG_BOOTP_DNS2=y
++CONFIG_BOOTP_NTPSERVER=y
++# SMBIOS
++CONFIG_GENERATE_SMBIOS_TABLE=y
++CONFIG_CMD_SMBIOS=y
+\ No newline at end of file
 diff --git a/drivers/clk/Kconfig b/drivers/clk/Kconfig
 index c2da7b3938b..fa4bd11645f 100644
 --- a/drivers/clk/Kconfig
@@ -4033,19 +3888,6 @@ index 0c81e606622..0e0cc1979eb 100644
  	{ .compatible = "brcm,bcm2708-fb" },
  #if !IS_ENABLED(CONFIG_VIDEO_DT_SIMPLEFB)
  	{ .compatible = "simple-framebuffer" },
-diff --git a/include/asm-generic/sections.h b/include/asm-generic/sections.h
-index d59787948fd..a4e87859317 100644
---- a/include/asm-generic/sections.h
-+++ b/include/asm-generic/sections.h
-@@ -26,6 +26,8 @@ extern char __start_rodata[], __end_rodata[];
- extern char __start_data[], __end_data[];
- extern char __efi_helloworld_begin[];
- extern char __efi_helloworld_end[];
-+extern char __efi_ipxe_begin[];
-+extern char __efi_ipxe_end[];
- extern char __efi_var_file_begin[];
- extern char __efi_var_file_end[];
- extern char __efi_capsule_sig_begin[];
 diff --git a/include/broadcom/bcm_board_types.h b/include/broadcom/bcm_board_types.h
 new file mode 100644
 index 00000000000..3508b40fa9c
@@ -4390,51 +4232,6 @@ index cfff275daba..6bc3abe4a93 100644
  #define PCI_VENDOR_ID_TEHUTI		0x1fc9
  #define PCI_DEVICE_ID_TEHUTI_3009	0x3009
  #define PCI_DEVICE_ID_TEHUTI_3010	0x3010
-diff --git a/lib/efi_loader/Kconfig b/lib/efi_loader/Kconfig
-index b5f81e0ff53..4fe6afddf3a 100644
---- a/lib/efi_loader/Kconfig
-+++ b/lib/efi_loader/Kconfig
-@@ -622,6 +622,15 @@ config BOOTEFI_HELLO_COMPILE
- 	  No additional space will be required in the resulting U-Boot binary
- 	  when this option is enabled.
- 
-+config BOOTEFI_IPXE_FILE
-+	string "Path to the iPXE EFI binary"
-+	depends on CMD_BOOTEFI_IPXE
-+	default "firmware/ipxe.efi"
-+	help
-+	  Path to a pre-built iPXE EFI binary that will be embedded into
-+	  U-Boot via .incbin. The binary is included in the .rodata section
-+	  and can be launched with 'bootefi ipxe'.
-+
- config BOOTEFI_TESTAPP_COMPILE
- 	bool "Compile an EFI test app for testing"
- 	default y
-diff --git a/lib/efi_loader/Makefile b/lib/efi_loader/Makefile
-index d73ad43951b..793d9d3f519 100644
---- a/lib/efi_loader/Makefile
-+++ b/lib/efi_loader/Makefile
-@@ -24,6 +24,7 @@ apps-$(CONFIG_BOOTEFI_TESTAPP_COMPILE) += testapp
- apps-y += dbginfodump
- 
- obj-$(CONFIG_CMD_BOOTEFI_HELLO) += helloworld_efi.o
-+obj-$(CONFIG_CMD_BOOTEFI_IPXE) += ipxe_efi.o
- obj-$(CONFIG_EFI_BOOTMGR) += efi_bootmgr.o
- obj-$(CONFIG_EFI_BINARY_EXEC) += efi_bootbin.o
- obj-y += efi_boottime.o
-@@ -77,6 +78,12 @@ obj-$(CONFIG_EFI_DEBUG_SUPPORT) += efi_debug_support.o
- EFI_VAR_SEED_FILE := $(subst $\",,$(CONFIG_EFI_VAR_SEED_FILE))
- $(obj)/efi_var_seed.o: $(srctree)/$(EFI_VAR_SEED_FILE)
- 
-+ifeq ($(CONFIG_CMD_BOOTEFI_IPXE),y)
-+IPXE_EFI_FILE := $(subst $\",,$(CONFIG_BOOTEFI_IPXE_FILE))
-+$(obj)/ipxe_efi.o: $(srctree)/$(IPXE_EFI_FILE)
-+asflags-y += -DIPXE_EFI_PATH=\"$(srctree)/$(IPXE_EFI_FILE)\"
-+endif
-+
- ifeq ($(CONFIG_EFI_CAPSULE_AUTHENTICATE),y)
- capsule_crt_path=($(subst $(quote),,$(CONFIG_EFI_CAPSULE_CRT_FILE)))
- capsule_crt_full=$(srctree)/$(subst $(quote),,$(CONFIG_EFI_CAPSULE_CRT_FILE))
 diff --git a/lib/efi_loader/ipxe_efi.S b/lib/efi_loader/ipxe_efi.S
 new file mode 100644
 index 00000000000..59933b15abb
