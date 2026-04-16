@@ -494,6 +494,138 @@ index 9ac9d6768ca..2d1273a5aee 100644
 -boot_targets=mmc usb pxe dhcp
 +boot_targets=usb0 mmc nvme
 +bootmeths=extlinux efi script pxe efi_mgr
+diff --git a/boot/Kconfig b/boot/Kconfig
+index be6bb6d4535..e8061798e4d 100644
+--- a/boot/Kconfig
++++ b/boot/Kconfig
+@@ -648,6 +648,17 @@ config BOOTMETH_EFI_BOOTMGR
+ 	  the EFI binary to be launched is determined. To set the EFI variables
+ 	  use the eficonfig command.
+ 
++config BOOTMETH_IPXE
++	bool "Bootdev support for embedded iPXE"
++	depends on CMD_BOOTEFI_IPXE
++	select BOOTMETH_GLOBAL
++	default y
++	help
++	  Enable booting via the iPXE EFI binary embedded in U-Boot.
++	  This provides a global bootmeth that launches iPXE for network
++	  boot without requiring any storage device. iPXE handles its own
++	  DHCP/TFTP/HTTP boot process via the UEFI network stack.
++
+ config BOOTMETH_QFW
+ 	bool "Boot method using QEMU parameters"
+ 	depends on QFW
+diff --git a/boot/Makefile b/boot/Makefile
+index 7fb56e7ef37..9b39580fbc1 100644
+--- a/boot/Makefile
++++ b/boot/Makefile
+@@ -38,6 +38,7 @@ obj-$(CONFIG_$(PHASE_)BOOTMETH_SANDBOX) += bootmeth_sandbox.o
+ obj-$(CONFIG_$(PHASE_)BOOTMETH_SCRIPT) += bootmeth_script.o
+ obj-$(CONFIG_$(PHASE_)CEDIT) += cedit.o
+ obj-$(CONFIG_$(PHASE_)BOOTMETH_EFI_BOOTMGR) += bootmeth_efi_mgr.o
++obj-$(CONFIG_$(PHASE_)BOOTMETH_IPXE) += bootmeth_ipxe.o
+ 
+ obj-$(CONFIG_$(PHASE_)OF_LIBFDT) += fdt_support.o
+ obj-$(CONFIG_$(PHASE_)FDT_SIMPLEFB) += fdt_simplefb.o
+diff --git a/boot/bootmeth_ipxe.c b/boot/bootmeth_ipxe.c
+new file mode 100644
+index 00000000000..ba9aa1564fa
+--- /dev/null
++++ b/boot/bootmeth_ipxe.c
+@@ -0,0 +1,92 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * Bootmethod for embedded iPXE EFI binary
++ *
++ * Launches the iPXE EFI binary embedded in U-Boot's .rodata section
++ * as a global bootmeth, similar to the EFI boot manager method.
++ */
++
++#define LOG_CATEGORY UCLASS_BOOTSTD
++
++#include <bootdev.h>
++#include <bootflow.h>
++#include <bootmeth.h>
++#include <dm.h>
++#include <efi_loader.h>
++#include <asm-generic/sections.h>
++
++static int ipxe_check(struct udevice *dev, struct bootflow_iter *iter)
++{
++	int ret;
++
++	ret = bootflow_iter_check_system(iter);
++	if (ret)
++		return log_msg_ret("sys", ret);
++
++	return 0;
++}
++
++static int ipxe_read_bootflow(struct udevice *dev, struct bootflow *bflow)
++{
++	size_t size;
++
++	size = __efi_ipxe_end - __efi_ipxe_begin;
++	if (!size)
++		return log_msg_ret("empty", -EINVAL);
++
++	bflow->state = BOOTFLOWST_READY;
++
++	return 0;
++}
++
++static int ipxe_read_file(struct udevice *dev, struct bootflow *bflow,
++			  const char *file_path, ulong addr,
++			  enum bootflow_img_t type, ulong *sizep)
++{
++	return -ENOSYS;
++}
++
++static int ipxe_boot(struct udevice *dev, struct bootflow *bflow)
++{
++	efi_status_t ret;
++
++	ret = efi_binary_run(__efi_ipxe_begin,
++			     __efi_ipxe_end - __efi_ipxe_begin,
++			     EFI_FDT_USE_INTERNAL, NULL, 0);
++	if (ret)
++		return log_msg_ret("ipxe", -EIO);
++
++	return 0;
++}
++
++static int bootmeth_ipxe_bind(struct udevice *dev)
++{
++	struct bootmeth_uc_plat *plat = dev_get_uclass_plat(dev);
++
++	plat->desc = "iPXE embedded EFI boot";
++	plat->flags = BOOTMETHF_GLOBAL;
++	plat->glob_prio = BOOTDEVP_6_NET_BASE;
++
++	return 0;
++}
++
++static struct bootmeth_ops ipxe_bootmeth_ops = {
++	.check		= ipxe_check,
++	.read_bootflow	= ipxe_read_bootflow,
++	.read_file	= ipxe_read_file,
++	.boot		= ipxe_boot,
++};
++
++static const struct udevice_id ipxe_bootmeth_ids[] = {
++	{ .compatible = "u-boot,ipxe" },
++	{ }
++};
++
++/* '6' prefix gives it lower priority than efi (4) and efi_mgr (3) */
++U_BOOT_DRIVER(bootmeth_6ipxe) = {
++	.name		= "bootmeth_ipxe",
++	.id		= UCLASS_BOOTMETH,
++	.of_match	= ipxe_bootmeth_ids,
++	.ops		= &ipxe_bootmeth_ops,
++	.bind		= bootmeth_ipxe_bind,
++};
 diff --git a/cmd/Kconfig b/cmd/Kconfig
 index 7bbeaad04ff..0ceb11f35eb 100644
 --- a/cmd/Kconfig
@@ -542,7 +674,7 @@ index 85f41c3b0a0..6dc6c98b4c1 100644
  	"bootefi selftest [fdt address]\n"
  	"  - boot an EFI selftest application stored within U-Boot\n"
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
-index 69e8e72c5d7..2c7e7df29e9 100644
+index 69e8e72c5d7..59b49c10d72 100644
 --- a/configs/rpi_arm64_defconfig
 +++ b/configs/rpi_arm64_defconfig
 @@ -4,7 +4,7 @@ CONFIG_ARCH_BCM283X=y
@@ -598,7 +730,7 @@ index 69e8e72c5d7..2c7e7df29e9 100644
  CONFIG_SYS_DFU_DATA_BUF_SIZE=0x100000
  CONFIG_SYS_DFU_MAX_FILE_SIZE=0x200000
  CONFIG_BCM2835_GPIO=y
-@@ -65,3 +83,38 @@ CONFIG_VIDEO_BCM2835=y
+@@ -65,3 +83,40 @@ CONFIG_VIDEO_BCM2835=y
  CONFIG_CONSOLE_SCROLL_LINES=10
  CONFIG_PHYS_TO_BUS=y
  # CONFIG_HEXDUMP is not set
@@ -620,14 +752,9 @@ index 69e8e72c5d7..2c7e7df29e9 100644
 +CONFIG_USB_XHCI_DWC3=y
 +# Boot config
 +CONFIG_BOOTSTD=y
-+CONFIG_BOOTMETH_DISTRO=n
-+CONFIG_BOOTMETH_DISTRO_PXE=n
 +CONFIG_BOOTMETH_EFILOADER=y
-+CONFIG_BOOTMETH_GLOBAL=n
-+CONFIG_BOOTMETH_SCRIPT=n
++CONFIG_BOOTMETH_IPXE=y
 +CONFIG_PXE_UTILS=n
-+# Disable EFI bootmanager (reserves memory on 0x00080000 -> prevents continuing after being successful)
-+CONFIG_CMD_BOOTEFI_BOOTMGR=y
 +# Expo Menu
 +CONFIG_BOOTSTD_FULL=y
 +CONFIG_BOOTSTD_BOOTCOMMAND=y
@@ -637,6 +764,13 @@ index 69e8e72c5d7..2c7e7df29e9 100644
 +CONFIG_CMD_BOOTFLOW_FULL=y
 +CONFIG_AUTOBOOT_MENU_SHOW=y
 +CONFIG_CMD_BOOTEFI_IPXE=y
++# Early serial debug (pre-DM, hardcoded PL011 at 0x7d001000)
++CONFIG_DEBUG_UART=y
++CONFIG_DEBUG_UART_PL011=y
++CONFIG_DEBUG_UART_BASE=0x7d001000
++CONFIG_DEBUG_UART_CLOCK=48000000
++CONFIG_DEBUG_UART_SKIP_INIT=y
++CONFIG_DEBUG_UART_ANNOUNCE=y
 diff --git a/drivers/clk/Kconfig b/drivers/clk/Kconfig
 index c2da7b3938b..fa4bd11645f 100644
 --- a/drivers/clk/Kconfig
@@ -4303,18 +4437,19 @@ index d73ad43951b..793d9d3f519 100644
  capsule_crt_full=$(srctree)/$(subst $(quote),,$(CONFIG_EFI_CAPSULE_CRT_FILE))
 diff --git a/lib/efi_loader/ipxe_efi.S b/lib/efi_loader/ipxe_efi.S
 new file mode 100644
-index 00000000000..ca303e4d59f
+index 00000000000..59933b15abb
 --- /dev/null
 +++ b/lib/efi_loader/ipxe_efi.S
-@@ -0,0 +1,11 @@
+@@ -0,0 +1,12 @@
 +/* SPDX-License-Identifier: GPL-2.0+ */
 +
-+#include <linux/linkage.h>
++#include <config.h>
 +
-+	.section .rodata
-+	.balign 16
-+	.globl __efi_ipxe_begin
++.section .rodata.ipxe.efi.init,"a"
++.balign 16
++.global __efi_ipxe_begin
 +__efi_ipxe_begin:
-+	.incbin IPXE_EFI_PATH
-+	.globl __efi_ipxe_end
++.incbin IPXE_EFI_PATH
++.global __efi_ipxe_end
 +__efi_ipxe_end:
++.balign 16
