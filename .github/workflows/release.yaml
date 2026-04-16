@@ -495,7 +495,13 @@ jobs:
           # Copy patched Raspberry Pi kernel device tree files (bcm2712*)
           # Built from raspberrypi/linux with upstream-compatibility patches applied
           echo "Copying patched kernel device tree files..."
-          cp artifacts/kernel-dts/*.dtb build/
+          mkdir -p build/broadcom
+          cp artifacts/kernel-dts/*.dtb build/broadcom/
+          for dtb in build/broadcom/*.dtb; do
+            if [ -f "$dtb" ]; then
+              ln -s "$dtb" ./
+            fi
+          done
           mkdir -p build/overlays
           cp -r artifacts/kernel-dts/overlays/. build/overlays/
           echo "Kernel DTB files:"
