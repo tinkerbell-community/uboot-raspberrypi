@@ -499,7 +499,7 @@ jobs:
           cp artifacts/kernel-dts/*.dtb build/broadcom/
           for dtb in build/broadcom/*.dtb; do
             if [ -f "$dtb" ]; then
-              ln -s "$dtb" ./
+              ln -s "$dtb" ./build/"$(basename "$dtb")"
             fi
           done
           mkdir -p build/overlays
