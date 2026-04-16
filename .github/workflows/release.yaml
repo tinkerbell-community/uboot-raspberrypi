@@ -498,14 +498,13 @@ jobs:
           mkdir -p build/broadcom
           cp artifacts/kernel-dts/*.dtb build/broadcom/
           for dtb in build/broadcom/*.dtb; do
+            echo "Processing $dtb"
             if [ -f "$dtb" ]; then
-              ln -s "$dtb" ./build/"$(basename "$dtb")"
+              ln -s "$dtb" "./build/$(basename "${dtb}")"
             fi
           done
           mkdir -p build/overlays
           cp -r artifacts/kernel-dts/overlays/. build/overlays/
-          echo "Kernel DTB files:"
-          ls -lah build/bcm27*
           echo "Overlay files:"
           ls -lah build/overlays/
 
