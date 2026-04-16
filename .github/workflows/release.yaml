@@ -143,6 +143,18 @@ jobs:
           echo "CONFIG_GENERATE_SMBIOS_TABLE=y" >> .config
           echo "CONFIG_CMD_SMBIOS=y" >> .config
 
+          # DEBUG_UART: pre-DM serial output for boot hang diagnosis.
+          # Uses hardcoded PL011 at 0x7d001000 (RPi 5 UART).
+          # SKIP_INIT=y: firmware already initialized the UART.
+          # ANNOUNCE=y: prints "debug UART enabled" at very first opportunity.
+          # Remove this block once boot is confirmed working.
+          echo "CONFIG_DEBUG_UART=y" >> .config
+          echo "CONFIG_DEBUG_UART_PL011=y" >> .config
+          echo "CONFIG_DEBUG_UART_BASE=0x7d001000" >> .config
+          echo "CONFIG_DEBUG_UART_CLOCK=48000000" >> .config
+          echo "CONFIG_DEBUG_UART_SKIP_INIT=y" >> .config
+          echo "CONFIG_DEBUG_UART_ANNOUNCE=y" >> .config
+
       - name: Build U-Boot
         working-directory: u-boot
         run: |
