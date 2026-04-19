@@ -39,3 +39,4 @@ dtoverlay=dwc2,dr_mode=host
 
 [pi5]
 usb_max_current_enable=1
+enable_uart=0
