@@ -4225,21 +4225,3 @@ index cfff275daba..6bc3abe4a93 100644
  #define PCI_VENDOR_ID_TEHUTI		0x1fc9
  #define PCI_DEVICE_ID_TEHUTI_3009	0x3009
  #define PCI_DEVICE_ID_TEHUTI_3010	0x3010
-diff --git a/lib/efi_loader/ipxe_efi.S b/lib/efi_loader/ipxe_efi.S
-new file mode 100644
-index 00000000000..59933b15abb
---- /dev/null
-+++ b/lib/efi_loader/ipxe_efi.S
-@@ -0,0 +1,12 @@
-+/* SPDX-License-Identifier: GPL-2.0+ */
-+
-+#include <config.h>
-+
-+.section .rodata.ipxe.efi.init,"a"
-+.balign 16
-+.global __efi_ipxe_begin
-+__efi_ipxe_begin:
-+.incbin IPXE_EFI_PATH
-+.global __efi_ipxe_end
-+__efi_ipxe_end:
-+.balign 16
