@@ -484,40 +484,17 @@ index b0a1484c0fa..18fec0bc163 100644
  		node = fdt_node_offset_by_compatible(gd->fdt_blob, -1, "brcm,bcm2711-emmc2");
  		if (node) {
 diff --git a/board/raspberrypi/rpi/rpi.env b/board/raspberrypi/rpi/rpi.env
-index 9ac9d6768ca..9ffbf936fb9 100644
+index 9ac9d6768ca..52255f74398 100644
 --- a/board/raspberrypi/rpi/rpi.env
 +++ b/board/raspberrypi/rpi/rpi.env
-@@ -77,4 +77,5 @@ pxefile_addr_r=0x05500000
+@@ -77,4 +77,4 @@ pxefile_addr_r=0x05500000
  fdt_addr_r=0x05600000
  ramdisk_addr_r=0x05700000
  
 -boot_targets=mmc usb pxe dhcp
 +boot_targets=dhcp mmc nvme usb
-+bootmeths=extlinux efi script efi_mgr
-diff --git a/boot/Kconfig b/boot/Kconfig
-index be6bb6d4535..e8061798e4d 100644
---- a/boot/Kconfig
-+++ b/boot/Kconfig
-@@ -648,6 +648,17 @@ config BOOTMETH_EFI_BOOTMGR
- 	  the EFI binary to be launched is determined. To set the EFI variables
- 	  use the eficonfig command.
- 
-+config BOOTMETH_IPXE
-+	bool "Bootdev support for embedded iPXE"
-+	depends on CMD_BOOTEFI_IPXE
-+	select BOOTMETH_GLOBAL
-+	default y
-+	help
-+	  Enable booting via the iPXE EFI binary embedded in U-Boot.
-+	  This provides a global bootmeth that launches iPXE for network
-+	  boot without requiring any storage device. iPXE handles its own
-+	  DHCP/TFTP/HTTP boot process via the UEFI network stack.
-+
- config BOOTMETH_QFW
- 	bool "Boot method using QEMU parameters"
- 	depends on QFW
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
-index 69e8e72c5d7..87480021090 100644
+index 69e8e72c5d7..be3b6af52a5 100644
 --- a/configs/rpi_arm64_defconfig
 +++ b/configs/rpi_arm64_defconfig
 @@ -4,7 +4,7 @@ CONFIG_ARCH_BCM283X=y
@@ -534,7 +511,7 @@ index 69e8e72c5d7..87480021090 100644
  CONFIG_FDT_SIMPLEFB=y
  CONFIG_USE_PREBOOT=y
 -CONFIG_PREBOOT="pci enum; usb start;"
-+CONFIG_PREBOOT="pci enum; nvme scan; usb start; env load"
++CONFIG_PREBOOT="pci enum; nvme scan; usb start; env load; env save"
  CONFIG_SYS_PBSIZE=1049
  # CONFIG_DISPLAY_CPUINFO is not set
  # CONFIG_DISPLAY_BOARDINFO is not set
@@ -598,13 +575,13 @@ index 69e8e72c5d7..87480021090 100644
 +CONFIG_BOOTMETH_EFILOADER=y
 +CONFIG_PXE_UTILS=n
 +# Expo Menu
-+CONFIG_BOOTSTD_FULL=y
-+CONFIG_BOOTSTD_BOOTCOMMAND=y
-+CONFIG_EXPO=y
-+CONFIG_BOOTSTD_MENU=y
-+CONFIG_CMD_BOOTMENU=y
-+CONFIG_CMD_BOOTFLOW_FULL=y
-+CONFIG_AUTOBOOT_MENU_SHOW=y
++# CONFIG_BOOTSTD_FULL=y
++# CONFIG_BOOTSTD_BOOTCOMMAND=y
++# CONFIG_EXPO=y
++# CONFIG_BOOTSTD_MENU=y
++# CONFIG_CMD_BOOTMENU=y
++# CONFIG_CMD_BOOTFLOW_FULL=y
++# CONFIG_AUTOBOOT_MENU_SHOW=y
 +# PXE
 +CONFIG_DHCP_PXE_CLIENTARCH=0xb # EFI ARM64 (IANA arch 11)
 +CONFIG_BOOTP_VCI_STRING="PXEClient" # Vendor Class Identifier (60)
