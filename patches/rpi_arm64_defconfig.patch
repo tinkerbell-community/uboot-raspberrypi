@@ -494,7 +494,7 @@ index 9ac9d6768ca..52255f74398 100644
 -boot_targets=mmc usb pxe dhcp
 +boot_targets=dhcp mmc nvme usb
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
-index 69e8e72c5d7..be3b6af52a5 100644
+index 69e8e72c5d7..82c853d64df 100644
 --- a/configs/rpi_arm64_defconfig
 +++ b/configs/rpi_arm64_defconfig
 @@ -4,7 +4,7 @@ CONFIG_ARCH_BCM283X=y
@@ -550,7 +550,7 @@ index 69e8e72c5d7..be3b6af52a5 100644
  CONFIG_SYS_DFU_DATA_BUF_SIZE=0x100000
  CONFIG_SYS_DFU_MAX_FILE_SIZE=0x200000
  CONFIG_BCM2835_GPIO=y
-@@ -65,3 +83,44 @@ CONFIG_VIDEO_BCM2835=y
+@@ -65,3 +83,47 @@ CONFIG_VIDEO_BCM2835=y
  CONFIG_CONSOLE_SCROLL_LINES=10
  CONFIG_PHYS_TO_BUS=y
  # CONFIG_HEXDUMP is not set
@@ -572,8 +572,11 @@ index 69e8e72c5d7..be3b6af52a5 100644
 +CONFIG_USB_XHCI_DWC3=y
 +# Boot config
 +CONFIG_BOOTSTD=y
-+CONFIG_BOOTMETH_EFILOADER=y
++CONFIG_BOOTMETH_EFILOADER=n
 +CONFIG_PXE_UTILS=n
++# EFI
++CONFIG_EFI_BOOTMGR=n
++CONFIG_CMD_BOOTEFI_BOOTMGR=n
 +# Expo Menu
 +# CONFIG_BOOTSTD_FULL=y
 +# CONFIG_BOOTSTD_BOOTCOMMAND=y
