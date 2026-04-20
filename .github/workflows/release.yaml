@@ -79,9 +79,7 @@ jobs:
           echo "Final release version: $RELEASE_VERSION"
 
   build-uboot:
-    needs:
-      - determine-version
-      - build-ipxe-arm64
+    needs: determine-version
     runs-on: ubuntu-24.04-arm
     strategy:
       matrix:
@@ -113,19 +111,10 @@ jobs:
           packages: build-essential git bison flex bc libssl-dev libgnutls28-dev device-tree-compiler
           version: 1.0
 
-      - name: Download iPXE ARM64 binary
-        uses: actions/download-artifact@v4
-        with:
-          name: ipxe-arm64-binary
-          path: ipxe
-
       - name: Configure U-Boot for Raspberry Pi 4 ARM64
         working-directory: u-boot
         run: |
           patch -p1 < ${{ github.workspace }}/src/patches/rpi_arm64_defconfig.patch
-
-          mkdir -p firmware
-          cp -v ../ipxe/snp.efi ./firmware/ipxe.efi
 
           make rpi_arm64_defconfig LOCALVERSION_AUTO=n
 
@@ -133,27 +122,6 @@ jobs:
           echo "CONFIG_BOOTP_SEND_HOSTNAME=y" >> .config
           echo "CONFIG_BOOTP_DNS2=y" >> .config
           echo "CONFIG_BOOTP_NTPSERVER=y" >> .config
-
-          # SMBIOS: generates System Management BIOS tables passed via UEFI config table to the OS.
-          # Talos Linux reads SMBIOS Type 1 Serial Number as the NoCloud datasource string:
-          #   serial# = "ds=nocloud-net;s=http://<server>/configs/;h=<hostname>"
-          # Set via: fw_setenv -c /boot/fw_env.config serial# "ds=nocloud-net;s=http://..."
-          echo "CONFIG_SYSINFO=y" >> .config
-          echo "CONFIG_SYSINFO_SMBIOS=y" >> .config
-          echo "CONFIG_GENERATE_SMBIOS_TABLE=y" >> .config
-          echo "CONFIG_CMD_SMBIOS=y" >> .config
-
-          # DEBUG_UART: pre-DM serial output for boot hang diagnosis.
-          # Uses hardcoded PL011 at 0x7d001000 (RPi 5 UART).
-          # SKIP_INIT=y: firmware already initialized the UART.
-          # ANNOUNCE=y: prints "debug UART enabled" at very first opportunity.
-          # Remove this block once boot is confirmed working.
-          echo "CONFIG_DEBUG_UART=y" >> .config
-          echo "CONFIG_DEBUG_UART_PL011=y" >> .config
-          echo "CONFIG_DEBUG_UART_BASE=0x7d001000" >> .config
-          echo "CONFIG_DEBUG_UART_CLOCK=48000000" >> .config
-          echo "CONFIG_DEBUG_UART_SKIP_INIT=y" >> .config
-          echo "CONFIG_DEBUG_UART_ANNOUNCE=y" >> .config
 
       - name: Build U-Boot
         working-directory: u-boot
