@@ -484,7 +484,7 @@ index b0a1484c0fa..18fec0bc163 100644
  		node = fdt_node_offset_by_compatible(gd->fdt_blob, -1, "brcm,bcm2711-emmc2");
  		if (node) {
 diff --git a/board/raspberrypi/rpi/rpi.env b/board/raspberrypi/rpi/rpi.env
-index 9ac9d6768ca..800dfd44f52 100644
+index 9ac9d6768ca..9a3db2be0e6 100644
 --- a/board/raspberrypi/rpi/rpi.env
 +++ b/board/raspberrypi/rpi/rpi.env
 @@ -77,4 +77,5 @@ pxefile_addr_r=0x05500000
@@ -493,7 +493,7 @@ index 9ac9d6768ca..800dfd44f52 100644
  
 -boot_targets=mmc usb pxe dhcp
 +boot_targets=usb0 mmc nvme usb1
-+bootmeths=extlinux efi script efi_mgr
++bootmeths=extlinux efi script
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
 index 69e8e72c5d7..3e689b0ff26 100644
 --- a/configs/rpi_arm64_defconfig
