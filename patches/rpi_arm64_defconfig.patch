@@ -517,7 +517,7 @@ index be6bb6d4535..e8061798e4d 100644
  	bool "Boot method using QEMU parameters"
  	depends on QFW
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
-index 69e8e72c5d7..a2ffac283ca 100644
+index 69e8e72c5d7..87480021090 100644
 --- a/configs/rpi_arm64_defconfig
 +++ b/configs/rpi_arm64_defconfig
 @@ -4,7 +4,7 @@ CONFIG_ARCH_BCM283X=y
@@ -606,7 +606,7 @@ index 69e8e72c5d7..a2ffac283ca 100644
 +CONFIG_CMD_BOOTFLOW_FULL=y
 +CONFIG_AUTOBOOT_MENU_SHOW=y
 +# PXE
-+CONFIG_DHCP_PXE_CLIENTARCH=0x11 # EFI ARM64
++CONFIG_DHCP_PXE_CLIENTARCH=0xb # EFI ARM64 (IANA arch 11)
 +CONFIG_BOOTP_VCI_STRING="PXEClient" # Vendor Class Identifier (60)
 +CONFIG_BOOTP_PXE=y
 +CONFIG_BOOTP_PXE_DHCP_OPTION=y
