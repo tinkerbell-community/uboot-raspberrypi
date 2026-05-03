@@ -494,7 +494,7 @@ index 9ac9d6768ca..52255f74398 100644
 -boot_targets=mmc usb pxe dhcp
 +boot_targets=dhcp mmc nvme usb
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
-index 69e8e72c5d7..82c853d64df 100644
+index 69e8e72c5d7..b34e4927072 100644
 --- a/configs/rpi_arm64_defconfig
 +++ b/configs/rpi_arm64_defconfig
 @@ -4,7 +4,7 @@ CONFIG_ARCH_BCM283X=y
@@ -525,6 +525,7 @@ index 69e8e72c5d7..82c853d64df 100644
  CONFIG_CMD_USB=y
  CONFIG_CMD_EFIDEBUG=y
  CONFIG_CMD_FS_UUID=y
+-CONFIG_ENV_FAT_DEVICE_AND_PART="0:1"
 +CONFIG_ENV_OVERWRITE=y
 +CONFIG_ENV_APPEND=y
 +CONFIG_ENV_IS_NOWHERE=n
@@ -537,7 +538,7 @@ index 69e8e72c5d7..82c853d64df 100644
 +# CONFIG_ENV_REDUNDANT is not set
 +CONFIG_ENV_FAT_FILE="uboot.env"
 +# CONFIG_ENV_OFFSET=0x00000
- CONFIG_ENV_FAT_DEVICE_AND_PART="0:1"
++CONFIG_ENV_FAT_DEVICE_AND_PART=":auto"
  CONFIG_ENV_VARS_UBOOT_RUNTIME_CONFIG=y
 +# UEFI variable persistence
 +CONFIG_FAT_WRITE=y
