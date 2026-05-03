@@ -124,22 +124,11 @@ jobs:
           make -j $(nproc) HOSTLDLIBS_mkimage="-lssl -lcrypto" LOCALVERSION_AUTO=n
           ls -la u-boot.bin
 
-      - name: Create U-Boot Environment configuration
-        working-directory: u-boot
-        run: |
-          make u-boot-initial-env -j $(nproc) HOSTLDLIBS_mkimage="-lssl -lcrypto" LOCALVERSION_AUTO=n
-          # Strip leading whitespace from heredoc
-          sed -i 's/^[[:space:]]*//' u-boot-initial-env
-          ./tools/mkenvimage -s 0x4000 -o uboot.env u-boot-initial-env
-          ls -la uboot.env
-
       - name: Upload U-Boot binary
         uses: actions/upload-artifact@v4
         with:
           name: uboot-binary
-          path: |
-            u-boot/u-boot.bin
-            u-boot/uboot.env
+          path: u-boot/u-boot.bin
           retention-days: 1
           if-no-files-found: error
 
@@ -317,23 +306,10 @@ jobs:
 
           # Copy U-Boot binaries
           cp artifacts/uboot-*/*.bin build/
-          cp artifacts/uboot-*/*.env build/
           ls -lah build/
 
           # Copy config file
           cp artifacts/config-files/config.txt build/
-
-          # Create fw_env.config for Tinkerbell provisioning workflows.
-          # Allows fw_setenv to write the U-Boot environment (FAT file: uboot.env).
-          # Talos NoCloud datasource is injected via:
-          #   mount /boot/uboot.env /boot
-          #   fw_setenv -c /boot/fw_env.config serial# "ds=nocloud-net;s=http://<server>/configs/;h=<hostname>"
-          #   umount /boot
-          cat > build/fw_env.config << 'FW_ENV_EOF'
-          # U-Boot environment — FAT file: /uboot.env
-          # device          offset   size
-          /uboot.env        0x0000   0x4000
-          FW_ENV_EOF
 
           # Copy firmware files
           cp -r artifacts/rpi-firmware/* build/
@@ -465,7 +441,6 @@ jobs:
           - NVMe boot support (with patches)
           - Custom boot command for network-first boot
           - SMBIOS table generation (UEFI config table passed to OS)
-          - U-Boot environment stored in FAT file (\`/boot/uboot.env\`)
 
           ## Installation
 
