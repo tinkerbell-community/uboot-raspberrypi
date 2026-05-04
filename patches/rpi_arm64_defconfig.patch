@@ -379,7 +379,7 @@ index 1dc7ce50d1d..3532a980b75 100644
  
  void __efi_runtime EFIAPI efi_reset_system(
 diff --git a/board/raspberrypi/rpi/rpi.c b/board/raspberrypi/rpi/rpi.c
-index b0a1484c0fa..28eb33f1761 100644
+index b0a1484c0fa..5a04bb7ae93 100644
 --- a/board/raspberrypi/rpi/rpi.c
 +++ b/board/raspberrypi/rpi/rpi.c
 @@ -9,27 +9,35 @@
@@ -429,7 +429,7 @@ index b0a1484c0fa..28eb33f1761 100644
  	printf("RPI %s (0x%x)\n", model->name, revision);
  }
  
-@@ -661,11 +673,342 @@ int ft_board_setup(void *blob, struct bd_info *bd)
+@@ -661,11 +673,330 @@ int ft_board_setup(void *blob, struct bd_info *bd)
  	return 0;
  }
  
@@ -493,10 +493,8 @@ index b0a1484c0fa..28eb33f1761 100644
 +static bool rpi_eeprom_power_off_on_halt(void)
 +{
 +	void *fw_fdt = (void *)fw_dtb_pointer;
-+	const fdt32_t *reg;
-+	int node, len;
-+	phys_addr_t addr;
-+	u32 size;
++	struct fdt_resource res;
++	int node, ret;
 +	const char *cfg, *p, *end;
 +
 +	if (!fw_fdt || fdt_magic(fw_fdt) != FDT_MAGIC)
@@ -506,31 +504,21 @@ index b0a1484c0fa..28eb33f1761 100644
 +	 * "blconfig" is an alias in the firmware DT that resolves to the
 +	 * nvmem-rmem node whose reg property the firmware has filled in with
 +	 * the physical address of the EEPROM config copy in reserved memory.
-+	 * The parent reserved-memory node uses #address-cells = <2> and
-+	 * #size-cells = <1>, so reg = <addr_hi addr_lo size>.
++	 *
++	 * fdt_get_resource() reads the parent's #address-cells/#size-cells
++	 * automatically, so the 4-cell encoding used by BCM2711/BCM2712
++	 * (<addr_hi addr_lo size_hi size_lo>) is handled correctly.
 +	 */
 +	node = fdt_path_offset(fw_fdt, "blconfig");
 +	if (node < 0)
 +		return false;
 +
-+	reg = fdt_getprop(fw_fdt, node, "reg", &len);
-+	if (!reg || len < 3 * (int)sizeof(u32))
++	ret = fdt_get_resource(fw_fdt, node, "reg", 0, &res);
++	if (ret || !res.start || res.start == res.end)
 +		return false;
 +
-+	if (fdt32_to_cpu(reg[0]) != 0) {
-+		/* address above 4 GB — not expected on RPi, skip */
-+		log_debug("RPI: blconfig address > 32-bit, skipping POWER_OFF_ON_HALT check\n");
-+		return false;
-+	}
-+
-+	addr = fdt32_to_cpu(reg[1]);
-+	size = fdt32_to_cpu(reg[2]);
-+
-+	if (!addr || !size)
-+		return false;
-+
-+	cfg = (const char *)(uintptr_t)addr;
-+	end = cfg + size;
++	cfg = (const char *)(uintptr_t)res.start;
++	end = (const char *)(uintptr_t)(res.end + 1);
 +
 +	for (p = cfg; p < end && *p; ) {
 +		if ((end - p) > 18 && !strncmp(p, "POWER_OFF_ON_HALT=", 18))
@@ -774,7 +762,7 @@ index b0a1484c0fa..28eb33f1761 100644
  }
  
  static bool is_rpi3(void)
-@@ -681,30 +1024,33 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
+@@ -681,30 +1012,33 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
  	struct {
  		const char *fdt_compatible;
  		const char *acpi_scope;
@@ -823,7 +811,7 @@ index b0a1484c0fa..28eb33f1761 100644
  		    (is_rpi3() && !map[i].on_rpi3)) {
  			enabled = false;
  		} else {
-@@ -743,7 +1089,7 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
+@@ -743,7 +1077,7 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
  	acpigen_write_name_integer(ctx, "_STA", enabled ? 0xf : 0);
  	acpigen_pop_len(ctx);
  
