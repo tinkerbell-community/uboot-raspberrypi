@@ -151,10 +151,10 @@ index ec0f93dd850..30260fa5269 100644
 +	};
 +};
 diff --git a/arch/arm/mach-bcm283x/Kconfig b/arch/arm/mach-bcm283x/Kconfig
-index d9303e8c281..19eecd790ef 100644
+index d9303e8c281..e1ee83730ea 100644
 --- a/arch/arm/mach-bcm283x/Kconfig
 +++ b/arch/arm/mach-bcm283x/Kconfig
-@@ -56,6 +56,26 @@ config BCM2711_64B
+@@ -56,6 +56,27 @@ config BCM2711_64B
  	select BLOBLIST_ALLOC if GENERATE_ACPI_TABLE
  	select BLOBLIST_TABLES if GENERATE_ACPI_TABLE
  
@@ -165,6 +165,7 @@ index d9303e8c281..19eecd790ef 100644
 +	select ARM64
 +	select CPU_ARMV8
 +	select PINCTRL_BCM2712 if PINCTRL
++	select BRCMSTB_GPIO
 +	select RP1_GPIO
 +	select CLK_RP1 if CLK
 +	select BOARD_LATE_INIT
@@ -1139,10 +1140,26 @@ index fa893485a09..13f3ca15998 100644
  	return addr.phys_hi & 0xff00;
  }
 diff --git a/drivers/gpio/Kconfig b/drivers/gpio/Kconfig
-index 1484dd3504c..84fcae32be2 100644
+index 1484dd3504c..b3cfca41862 100644
 --- a/drivers/gpio/Kconfig
 +++ b/drivers/gpio/Kconfig
-@@ -413,6 +413,14 @@ config RCAR_GPIO
+@@ -142,6 +142,15 @@ config BCM2835_GPIO
+ 	bool "BCM2835 GPIO driver"
+ 	depends on DM_GPIO && ARCH_BCM283X
+ 
++config BRCMSTB_GPIO
++	bool "Broadcom STB UPG GIO GPIO driver"
++	depends on DM_GPIO
++	help
++	  Support for the Broadcom STB "UPG GIO" GPIO controller found in
++	  BCM2712 (Raspberry Pi 5) and other Broadcom STB SoCs. This driver
++	  handles the SoC-level GIO and GIO_AON GPIO banks which are used
++	  for power button input, SD card detect, and other board functions.
++
+ config BCM6345_GPIO
+ 	bool "BCM6345 GPIO driver"
+ 	depends on DM_GPIO && (ARCH_BMIPS || BCM6856 || \
+@@ -413,6 +422,14 @@ config RCAR_GPIO
  	help
  	  This driver supports the GPIO banks on Renesas R-Car SoCs.
  
@@ -1158,7 +1175,7 @@ index 1484dd3504c..84fcae32be2 100644
  	bool "Renesas RZ/A1 GPIO driver"
  	depends on DM_GPIO && RZA1
 diff --git a/drivers/gpio/Makefile b/drivers/gpio/Makefile
-index fec258f59f5..bd5dca3c312 100644
+index fec258f59f5..ce8629a6172 100644
 --- a/drivers/gpio/Makefile
 +++ b/drivers/gpio/Makefile
 @@ -35,6 +35,7 @@ obj-$(CONFIG_NPCM_SGPIO)	+= npcm_sgpio.o
@@ -1169,6 +1186,233 @@ index fec258f59f5..bd5dca3c312 100644
  obj-$(CONFIG_RZA1_GPIO)		+= gpio-rza1.o
  obj-$(CONFIG_S5P)		+= s5p_gpio.o
  obj-$(CONFIG_SANDBOX_GPIO)	+= sandbox.o sandbox_test.o
+@@ -49,6 +50,7 @@ obj-$(CONFIG_MPC83XX_SPISEL_BOOT)	+= mpc83xx_spisel_boot.o
+ obj-$(CONFIG_SH_GPIO_PFC)	+= sh_pfc.o
+ obj-$(CONFIG_OMAP_GPIO)	+= omap_gpio.o
+ obj-$(CONFIG_BCM2835_GPIO)	+= bcm2835_gpio.o
++obj-$(CONFIG_BRCMSTB_GPIO)	+= brcmstb_gpio.o
+ obj-$(CONFIG_XILINX_GPIO)	+= xilinx_gpio.o
+ obj-$(CONFIG_SUNXI_GPIO)	+= sunxi_gpio.o
+ obj-$(CONFIG_LPC32XX_GPIO)	+= lpc32xx_gpio.o
+diff --git a/drivers/gpio/brcmstb_gpio.c b/drivers/gpio/brcmstb_gpio.c
+new file mode 100644
+index 00000000000..a113c7966c2
+--- /dev/null
++++ b/drivers/gpio/brcmstb_gpio.c
+@@ -0,0 +1,213 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * Broadcom STB "UPG GIO" GPIO controller driver
++ *
++ * Supports the brcm,bcm7445-gpio / brcm,brcmstb-gpio controllers found
++ * in BCM2712 (Raspberry Pi 5) and other Broadcom STB SoCs.
++ *
++ * Based on the Linux gpio-brcmstb.c driver and the U-Boot bcm2835_gpio.c.
++ */
++
++#include <dm.h>
++#include <errno.h>
++#include <asm/gpio.h>
++#include <asm/io.h>
++#include <dm/device_compat.h>
++#include <dm/read.h>
++
++/* Per-bank register offsets (each bank occupies 0x20 bytes) */
++#define GIO_BANK_SIZE	0x20
++#define GIO_REG_ODEN	0x00	/* open-drain enable */
++#define GIO_REG_DATA	0x04	/* data (read = pin level, write = output) */
++#define GIO_REG_IODIR	0x08	/* I/O direction: 1 = input, 0 = output */
++#define GIO_REG_EC	0x0c	/* edge configuration */
++#define GIO_REG_EI	0x10	/* edge interrupt enable */
++#define GIO_REG_MASK	0x14	/* interrupt mask */
++#define GIO_REG_LEVEL	0x18	/* level interrupt */
++#define GIO_REG_STAT	0x1c	/* interrupt status */
++
++#define MAX_BANKS	4
++
++struct brcmstb_gpio_priv {
++	void __iomem *base;
++	int num_banks;
++	u32 bank_widths[MAX_BANKS];
++};
++
++static int brcmstb_gpio_to_bank(struct brcmstb_gpio_priv *priv,
++				unsigned int gpio, unsigned int *bit)
++{
++	int bank;
++	unsigned int offset = gpio;
++
++	for (bank = 0; bank < priv->num_banks; bank++) {
++		if (offset < priv->bank_widths[bank]) {
++			*bit = offset;
++			return bank;
++		}
++		offset -= priv->bank_widths[bank];
++	}
++
++	return -EINVAL;
++}
++
++static int brcmstb_gpio_direction_input(struct udevice *dev, unsigned int gpio)
++{
++	struct brcmstb_gpio_priv *priv = dev_get_priv(dev);
++	unsigned int bit;
++	int bank;
++	u32 val;
++
++	bank = brcmstb_gpio_to_bank(priv, gpio, &bit);
++	if (bank < 0)
++		return bank;
++
++	val = readl(priv->base + bank * GIO_BANK_SIZE + GIO_REG_IODIR);
++	val |= BIT(bit);
++	writel(val, priv->base + bank * GIO_BANK_SIZE + GIO_REG_IODIR);
++
++	return 0;
++}
++
++static int brcmstb_gpio_direction_output(struct udevice *dev,
++					 unsigned int gpio, int value)
++{
++	struct brcmstb_gpio_priv *priv = dev_get_priv(dev);
++	unsigned int bit;
++	int bank;
++	u32 val;
++
++	bank = brcmstb_gpio_to_bank(priv, gpio, &bit);
++	if (bank < 0)
++		return bank;
++
++	/* Set the output value first */
++	val = readl(priv->base + bank * GIO_BANK_SIZE + GIO_REG_DATA);
++	if (value)
++		val |= BIT(bit);
++	else
++		val &= ~BIT(bit);
++	writel(val, priv->base + bank * GIO_BANK_SIZE + GIO_REG_DATA);
++
++	/* Then set direction to output */
++	val = readl(priv->base + bank * GIO_BANK_SIZE + GIO_REG_IODIR);
++	val &= ~BIT(bit);
++	writel(val, priv->base + bank * GIO_BANK_SIZE + GIO_REG_IODIR);
++
++	return 0;
++}
++
++static int brcmstb_gpio_get_value(struct udevice *dev, unsigned int gpio)
++{
++	struct brcmstb_gpio_priv *priv = dev_get_priv(dev);
++	unsigned int bit;
++	int bank;
++	u32 val;
++
++	bank = brcmstb_gpio_to_bank(priv, gpio, &bit);
++	if (bank < 0)
++		return bank;
++
++	val = readl(priv->base + bank * GIO_BANK_SIZE + GIO_REG_DATA);
++
++	return !!(val & BIT(bit));
++}
++
++static int brcmstb_gpio_set_value(struct udevice *dev, unsigned int gpio,
++				  int value)
++{
++	struct brcmstb_gpio_priv *priv = dev_get_priv(dev);
++	unsigned int bit;
++	int bank;
++	u32 val;
++
++	bank = brcmstb_gpio_to_bank(priv, gpio, &bit);
++	if (bank < 0)
++		return bank;
++
++	val = readl(priv->base + bank * GIO_BANK_SIZE + GIO_REG_DATA);
++	if (value)
++		val |= BIT(bit);
++	else
++		val &= ~BIT(bit);
++	writel(val, priv->base + bank * GIO_BANK_SIZE + GIO_REG_DATA);
++
++	return 0;
++}
++
++static int brcmstb_gpio_get_function(struct udevice *dev, unsigned int gpio)
++{
++	struct brcmstb_gpio_priv *priv = dev_get_priv(dev);
++	unsigned int bit;
++	int bank;
++	u32 val;
++
++	bank = brcmstb_gpio_to_bank(priv, gpio, &bit);
++	if (bank < 0)
++		return GPIOF_UNKNOWN;
++
++	val = readl(priv->base + bank * GIO_BANK_SIZE + GIO_REG_IODIR);
++
++	return (val & BIT(bit)) ? GPIOF_INPUT : GPIOF_OUTPUT;
++}
++
++static const struct dm_gpio_ops brcmstb_gpio_ops = {
++	.direction_input	= brcmstb_gpio_direction_input,
++	.direction_output	= brcmstb_gpio_direction_output,
++	.get_value		= brcmstb_gpio_get_value,
++	.set_value		= brcmstb_gpio_set_value,
++	.get_function		= brcmstb_gpio_get_function,
++};
++
++static int brcmstb_gpio_probe(struct udevice *dev)
++{
++	struct brcmstb_gpio_priv *priv = dev_get_priv(dev);
++	struct gpio_dev_priv *uc_priv = dev_get_uclass_priv(dev);
++	int ret, num_banks, i;
++	u32 total_gpios = 0;
++
++	priv->base = dev_remap_addr(dev);
++	if (!priv->base)
++		return -EINVAL;
++
++	num_banks = dev_read_size(dev, "brcm,gpio-bank-widths");
++	if (num_banks < 0)
++		return num_banks;
++	num_banks /= sizeof(u32);
++
++	if (num_banks > MAX_BANKS) {
++		dev_err(dev, "too many banks: %d (max %d)\n",
++			num_banks, MAX_BANKS);
++		return -EINVAL;
++	}
++
++	ret = dev_read_u32_array(dev, "brcm,gpio-bank-widths",
++				 priv->bank_widths, num_banks);
++	if (ret)
++		return ret;
++
++	priv->num_banks = num_banks;
++
++	for (i = 0; i < num_banks; i++)
++		total_gpios += priv->bank_widths[i];
++
++	uc_priv->gpio_count = total_gpios;
++	uc_priv->bank_name = dev_read_name(dev);
++
++	return 0;
++}
++
++static const struct udevice_id brcmstb_gpio_ids[] = {
++	{ .compatible = "brcm,bcm7445-gpio" },
++	{ .compatible = "brcm,brcmstb-gpio" },
++	{ }
++};
++
++U_BOOT_DRIVER(brcmstb_gpio) = {
++	.name		= "brcmstb_gpio",
++	.id		= UCLASS_GPIO,
++	.of_match	= brcmstb_gpio_ids,
++	.ops		= &brcmstb_gpio_ops,
++	.probe		= brcmstb_gpio_probe,
++	.priv_auto	= sizeof(struct brcmstb_gpio_priv),
++};
 diff --git a/drivers/gpio/rp1_gpio.c b/drivers/gpio/rp1_gpio.c
 new file mode 100644
 index 00000000000..a64af18fcf6
