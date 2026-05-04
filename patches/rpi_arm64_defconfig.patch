@@ -831,7 +831,7 @@ index 9ac9d6768ca..52255f74398 100644
 -boot_targets=mmc usb pxe dhcp
 +boot_targets=dhcp mmc nvme usb
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
-index 69e8e72c5d7..75b9ee1b9a5 100644
+index 69e8e72c5d7..e245bf52052 100644
 --- a/configs/rpi_arm64_defconfig
 +++ b/configs/rpi_arm64_defconfig
 @@ -4,7 +4,7 @@ CONFIG_ARCH_BCM283X=y
@@ -848,7 +848,7 @@ index 69e8e72c5d7..75b9ee1b9a5 100644
  CONFIG_FDT_SIMPLEFB=y
  CONFIG_USE_PREBOOT=y
 -CONFIG_PREBOOT="pci enum; usb start;"
-+CONFIG_PREBOOT="pci enum; nvme scan; usb start; if load usb :auto ${scriptaddr} persistent.env; then env import -t ${scriptaddr} ${filesize}; fi; if load usb :auto ${scriptaddr} once.env; then env import -t ${scriptaddr} ${filesize}; fatrm usb :auto once.env; fi; env export -t ${scriptaddr}; fatwrite usb :auto ${scriptaddr} machine.env ${filesize}"
++CONFIG_PREBOOT="pci enum; nvme scan; usb start; if load usb :auto ${loadaddr} vm.iso; then blkmap create vm; setexpr fileblks ${filesize} / 0x200; blkmap map vm 0 ${fileblks} mem ${loadaddr}; fi; if load usb :auto ${scriptaddr} persistent.env; then env import -t ${scriptaddr} ${filesize}; fi; if load usb :auto ${scriptaddr} once.env; then env import -t ${scriptaddr} ${filesize}; fatrm usb :auto once.env; fi; env export -t ${scriptaddr}; fatwrite usb :auto ${scriptaddr} machine.env ${filesize}"
  CONFIG_SYS_PBSIZE=1049
  # CONFIG_DISPLAY_CPUINFO is not set
  # CONFIG_DISPLAY_BOARDINFO is not set
@@ -881,7 +881,7 @@ index 69e8e72c5d7..75b9ee1b9a5 100644
  CONFIG_SYS_DFU_DATA_BUF_SIZE=0x100000
  CONFIG_SYS_DFU_MAX_FILE_SIZE=0x200000
  CONFIG_BCM2835_GPIO=y
-@@ -65,3 +76,47 @@ CONFIG_VIDEO_BCM2835=y
+@@ -65,3 +76,48 @@ CONFIG_VIDEO_BCM2835=y
  CONFIG_CONSOLE_SCROLL_LINES=10
  CONFIG_PHYS_TO_BUS=y
  # CONFIG_HEXDUMP is not set
@@ -901,6 +901,7 @@ index 69e8e72c5d7..75b9ee1b9a5 100644
 +CONFIG_CMD_USB_MASS_STORAGE=y
 +CONFIG_USB_DWC3=y
 +CONFIG_USB_XHCI_DWC3=y
++CONFIG_BLKMAP=y
 +# Boot config
 +CONFIG_BOOTSTD=y
 +CONFIG_BOOTMETH_EFILOADER=n
