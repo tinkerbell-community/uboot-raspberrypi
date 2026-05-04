@@ -151,10 +151,10 @@ index ec0f93dd850..30260fa5269 100644
 +	};
 +};
 diff --git a/arch/arm/mach-bcm283x/Kconfig b/arch/arm/mach-bcm283x/Kconfig
-index d9303e8c281..e1ee83730ea 100644
+index d9303e8c281..9d90fc336a5 100644
 --- a/arch/arm/mach-bcm283x/Kconfig
 +++ b/arch/arm/mach-bcm283x/Kconfig
-@@ -56,6 +56,27 @@ config BCM2711_64B
+@@ -56,6 +56,28 @@ config BCM2711_64B
  	select BLOBLIST_ALLOC if GENERATE_ACPI_TABLE
  	select BLOBLIST_TABLES if GENERATE_ACPI_TABLE
  
@@ -175,6 +175,7 @@ index d9303e8c281..e1ee83730ea 100644
 +	select BLOBLIST_TABLES if GENERATE_ACPI_TABLE
 +	imply OF_UPSTREAM
 +	imply BOARD_TYPES
++	imply CMD_POWEROFF
 +	imply BUTTON
 +	imply BUTTON_GPIO
 +	imply CYCLIC
@@ -326,8 +327,59 @@ index 7a1de22e0ae..97a6b9aa5b3 100644
  		.virt = 0x107c000000UL,
  		.phys = 0x107c000000UL,
  		.size = 0x0004000000UL,
+diff --git a/arch/arm/mach-bcm283x/reset.c b/arch/arm/mach-bcm283x/reset.c
+index 1dc7ce50d1d..3532a980b75 100644
+--- a/arch/arm/mach-bcm283x/reset.c
++++ b/arch/arm/mach-bcm283x/reset.c
+@@ -7,6 +7,7 @@
+  */
+ 
+ #include <config.h>
++#include <command.h>
+ #include <cpu_func.h>
+ #include <asm/io.h>
+ #include <asm/arch/base.h>
+@@ -53,6 +54,38 @@ void reset_cpu(void)
+ 	__reset_cpu(regs, 0);
+ }
+ 
++#ifdef CONFIG_CMD_POWEROFF
++/*
++ * Signal the VPU firmware to halt rather than reboot by setting partition 63
++ * (value 0x555) in the RSTS register before triggering the watchdog.
++ *
++ * The firmware reads PM_RSTS on startup: partition 63 means "halt". With
++ * POWER_OFF_ON_HALT=1 in the EEPROM bootloader configuration the PMIC is
++ * commanded to cut power; without it the firmware waits for a power-button
++ * press.
++ */
++int do_poweroff(
++			struct cmd_tbl *cmdtp,
++			int flag,
++			int argc, char *const argv[])
++{
++	struct bcm2835_wdog_regs *regs =
++					(struct bcm2835_wdog_regs *)BCM2835_WDOG_PHYSADDR;
++	u32 val;
++
++	val = readl(&regs->rsts);
++	val |= BCM2835_WDOG_PASSWORD;
++	val |= BCM2835_WDOG_RSTS_RASPBERRYPI_HALT;
++	writel(val, &regs->rsts);
++
++	__reset_cpu(regs, 0);
++
++	while (1) { }
++
++	return CMD_RET_SUCCESS;
++}
++#endif
++
+ #ifdef CONFIG_EFI_LOADER
+ 
+ void __efi_runtime EFIAPI efi_reset_system(
 diff --git a/board/raspberrypi/rpi/rpi.c b/board/raspberrypi/rpi/rpi.c
-index b0a1484c0fa..dcf8ad1864b 100644
+index b0a1484c0fa..28eb33f1761 100644
 --- a/board/raspberrypi/rpi/rpi.c
 +++ b/board/raspberrypi/rpi/rpi.c
 @@ -9,27 +9,35 @@
@@ -377,7 +429,7 @@ index b0a1484c0fa..dcf8ad1864b 100644
  	printf("RPI %s (0x%x)\n", model->name, revision);
  }
  
-@@ -661,11 +673,236 @@ int ft_board_setup(void *blob, struct bd_info *bd)
+@@ -661,11 +673,342 @@ int ft_board_setup(void *blob, struct bd_info *bd)
  	return 0;
  }
  
@@ -406,6 +458,8 @@ index b0a1484c0fa..dcf8ad1864b 100644
 + */
 +#if defined(CONFIG_CYCLIC) && defined(CONFIG_DM_GPIO)
 +
++#include <asm/arch/wdog.h>
++
 +/* GIO per-bank register offsets (each bank is 0x20 bytes) */
 +#define GIO_BANK_SIZE	0x20
 +#define GIO_REG_EC	0x0c	/* edge config: 0 = falling, 1 = rising (per Linux gpio-brcmstb.c) */
@@ -420,9 +474,99 @@ index b0a1484c0fa..dcf8ad1864b 100644
 +	struct gpio_desc gpio;		/* DM GPIO handle (level reads + diagnostics) */
 +	void __iomem *bank_base;	/* direct GIO bank register base (edge detect) */
 +	u32 bit_mask;			/* bit within the bank for the power GPIO */
++	bool power_off_on_halt;		/* POWER_OFF_ON_HALT from EEPROM bootloader config */
 +};
 +
 +static struct rpi_power_btn_ctx rpi_pwr_btn;
++
++/*
++ * Read POWER_OFF_ON_HALT from the EEPROM bootloader config exposed by the VPU
++ * firmware via the blconfig nvmem-rmem region in the firmware device tree.
++ *
++ * The firmware copies the EEPROM text config into reserved memory and updates
++ * the blconfig node's reg property with the physical address and size before
++ * handing off to U-Boot.  The config is a plain-text key=value file, e.g.:
++ *   POWER_OFF_ON_HALT=1
++ *
++ * Returns true only when POWER_OFF_ON_HALT=1 is found in that config.
++ */
++static bool rpi_eeprom_power_off_on_halt(void)
++{
++	void *fw_fdt = (void *)fw_dtb_pointer;
++	const fdt32_t *reg;
++	int node, len;
++	phys_addr_t addr;
++	u32 size;
++	const char *cfg, *p, *end;
++
++	if (!fw_fdt || fdt_magic(fw_fdt) != FDT_MAGIC)
++		return false;
++
++	/*
++	 * "blconfig" is an alias in the firmware DT that resolves to the
++	 * nvmem-rmem node whose reg property the firmware has filled in with
++	 * the physical address of the EEPROM config copy in reserved memory.
++	 * The parent reserved-memory node uses #address-cells = <2> and
++	 * #size-cells = <1>, so reg = <addr_hi addr_lo size>.
++	 */
++	node = fdt_path_offset(fw_fdt, "blconfig");
++	if (node < 0)
++		return false;
++
++	reg = fdt_getprop(fw_fdt, node, "reg", &len);
++	if (!reg || len < 3 * (int)sizeof(u32))
++		return false;
++
++	if (fdt32_to_cpu(reg[0]) != 0) {
++		/* address above 4 GB — not expected on RPi, skip */
++		log_debug("RPI: blconfig address > 32-bit, skipping POWER_OFF_ON_HALT check\n");
++		return false;
++	}
++
++	addr = fdt32_to_cpu(reg[1]);
++	size = fdt32_to_cpu(reg[2]);
++
++	if (!addr || !size)
++		return false;
++
++	cfg = (const char *)(uintptr_t)addr;
++	end = cfg + size;
++
++	for (p = cfg; p < end && *p; ) {
++		if ((end - p) > 18 && !strncmp(p, "POWER_OFF_ON_HALT=", 18))
++			return p[18] == '1';
++		/* advance to the next line */
++		while (p < end && *p && *p != '\n')
++			p++;
++		if (p < end && *p == '\n')
++			p++;
++	}
++
++	return false;
++}
++
++/*
++ * Signal the VPU firmware to halt (partition 63 in RSTS) before triggering
++ * the watchdog reset.  The firmware reads RSTS on startup: partition 63 means
++ * "halt".  With POWER_OFF_ON_HALT=1 in the EEPROM bootloader config the PMIC
++ * is commanded to cut power; without it the firmware waits for a
++ * power-button press before restarting.
++ */
++#define RPI_WDOG_RSTS_HALT	0x555	/* partition 63 – halt signal to VPU */
++
++static void rpi_signal_poweroff(void)
++{
++	struct bcm2835_wdog_regs *regs =
++		(struct bcm2835_wdog_regs *)BCM2835_WDOG_PHYSADDR;
++	u32 val;
++
++	val = readl(&regs->rsts);
++	val |= BCM2835_WDOG_PASSWORD;
++	val |= RPI_WDOG_RSTS_HALT;
++	writel(val, &regs->rsts);
++
++	reset_cpu();
++}
 +
 +static void rpi_power_btn_poll(struct cyclic_info *c)
 +{
@@ -435,16 +579,26 @@ index b0a1484c0fa..dcf8ad1864b 100644
 +
 +		if (stat & ctx->bit_mask) {
 +			writel(ctx->bit_mask, ctx->bank_base + GIO_REG_STAT);
-+			printf("\nRPI: Power button pressed, resetting...\n");
-+			reset_cpu();
++			if (ctx->power_off_on_halt) {
++				printf("\nRPI: Power button pressed, powering off...\n");
++				rpi_signal_poweroff();
++			} else {
++				printf("\nRPI: Power button pressed, resetting...\n");
++				reset_cpu();
++			}
 +			return;
 +		}
 +	}
 +
 +	/* Fallback: level-based detection for sustained holds */
 +	if (dm_gpio_get_value(&ctx->gpio) > 0) {
-+		printf("\nRPI: Power button held, resetting...\n");
-+		reset_cpu();
++		if (ctx->power_off_on_halt) {
++			printf("\nRPI: Power button held, powering off...\n");
++			rpi_signal_poweroff();
++		} else {
++			printf("\nRPI: Power button held, resetting...\n");
++			reset_cpu();
++		}
 +	}
 +}
 +
@@ -552,11 +706,15 @@ index b0a1484c0fa..dcf8ad1864b 100644
 +	writel(rpi_pwr_btn.bit_mask, rpi_pwr_btn.bank_base + GIO_REG_STAT);
 +
 +register_cyclic:
++	rpi_pwr_btn.power_off_on_halt = rpi_eeprom_power_off_on_halt();
++
 +	cyclic_register(&rpi_pwr_btn.cyclic, rpi_power_btn_poll,
 +			RPI_PWR_BTN_POLL_US, "rpi_pwr_btn");
 +
-+	printf("RPI: Power button monitoring enabled (GPIO%u, %s)\n",
-+	       gpio_offset, rpi_pwr_btn.bank_base ? "edge+level" : "level-only");
++	printf("RPI: Power button monitoring enabled (GPIO%u, %s, %s)\n",
++	       gpio_offset,
++	       rpi_pwr_btn.bank_base ? "edge+level" : "level-only",
++	       rpi_pwr_btn.power_off_on_halt ? "power-off" : "reset");
 +}
 +#else
 +static inline void rpi_register_power_button(void) {}
@@ -616,7 +774,7 @@ index b0a1484c0fa..dcf8ad1864b 100644
  }
  
  static bool is_rpi3(void)
-@@ -681,30 +918,33 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
+@@ -681,30 +1024,33 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
  	struct {
  		const char *fdt_compatible;
  		const char *acpi_scope;
@@ -665,7 +823,7 @@ index b0a1484c0fa..dcf8ad1864b 100644
  		    (is_rpi3() && !map[i].on_rpi3)) {
  			enabled = false;
  		} else {
-@@ -743,7 +983,7 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
+@@ -743,7 +1089,7 @@ static int acpi_rpi_board_fill_ssdt(struct acpi_ctx *ctx)
  	acpigen_write_name_integer(ctx, "_STA", enabled ? 0xf : 0);
  	acpigen_pop_len(ctx);
  
