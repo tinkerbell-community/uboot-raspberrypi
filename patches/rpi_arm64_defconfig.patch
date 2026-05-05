@@ -831,7 +831,7 @@ index 9ac9d6768ca..aa4257d3a8c 100644
 -boot_targets=mmc usb pxe dhcp
 +boot_targets=blkmap mmc nvme usb dhcp
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
-index 69e8e72c5d7..65fdc7c9b6a 100644
+index 69e8e72c5d7..ace6fad59e0 100644
 --- a/configs/rpi_arm64_defconfig
 +++ b/configs/rpi_arm64_defconfig
 @@ -4,7 +4,7 @@ CONFIG_ARCH_BCM283X=y
@@ -910,8 +910,8 @@ index 69e8e72c5d7..65fdc7c9b6a 100644
 +CONFIG_EFI_BOOTMGR=n
 +CONFIG_CMD_BOOTEFI_BOOTMGR=n
 +# Expo Menu
-+# CONFIG_BOOTSTD_FULL=y
-+# CONFIG_BOOTSTD_BOOTCOMMAND=y
++CONFIG_BOOTSTD_FULL=y
++CONFIG_BOOTSTD_BOOTCOMMAND=y
 +# CONFIG_EXPO=y
 +# CONFIG_BOOTSTD_MENU=y
 +# CONFIG_CMD_BOOTMENU=y
