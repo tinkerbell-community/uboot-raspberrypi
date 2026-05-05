@@ -831,7 +831,7 @@ index 9ac9d6768ca..4ce9b2e71c7 100644
 -boot_targets=mmc usb pxe dhcp
 +boot_targets=mmc usb nvme dhcp
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
-index 69e8e72c5d7..47d8644e25e 100644
+index 69e8e72c5d7..df795610e59 100644
 --- a/configs/rpi_arm64_defconfig
 +++ b/configs/rpi_arm64_defconfig
 @@ -4,7 +4,7 @@ CONFIG_ARCH_BCM283X=y
@@ -881,7 +881,7 @@ index 69e8e72c5d7..47d8644e25e 100644
  CONFIG_SYS_DFU_DATA_BUF_SIZE=0x100000
  CONFIG_SYS_DFU_MAX_FILE_SIZE=0x200000
  CONFIG_BCM2835_GPIO=y
-@@ -65,3 +76,52 @@ CONFIG_VIDEO_BCM2835=y
+@@ -65,3 +76,48 @@ CONFIG_VIDEO_BCM2835=y
  CONFIG_CONSOLE_SCROLL_LINES=10
  CONFIG_PHYS_TO_BUS=y
  # CONFIG_HEXDUMP is not set
@@ -930,11 +930,6 @@ index 69e8e72c5d7..47d8644e25e 100644
 +# SMBIOS
 +CONFIG_GENERATE_SMBIOS_TABLE=y
 +CONFIG_CMD_SMBIOS=y
-+# ISO
-+CONFIG_CMD_LSBLK=y
-+CONFIG_CMD_MBR=y
-+CONFIG_MTD=y
-\ No newline at end of file
 diff --git a/drivers/clk/Kconfig b/drivers/clk/Kconfig
 index c2da7b3938b..fa4bd11645f 100644
 --- a/drivers/clk/Kconfig
