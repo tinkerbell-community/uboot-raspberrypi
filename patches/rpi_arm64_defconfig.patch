@@ -821,7 +821,7 @@ index b0a1484c0fa..5a04bb7ae93 100644
  		node = fdt_node_offset_by_compatible(gd->fdt_blob, -1, "brcm,bcm2711-emmc2");
  		if (node) {
 diff --git a/board/raspberrypi/rpi/rpi.env b/board/raspberrypi/rpi/rpi.env
-index 9ac9d6768ca..aa4257d3a8c 100644
+index 9ac9d6768ca..4ce9b2e71c7 100644
 --- a/board/raspberrypi/rpi/rpi.env
 +++ b/board/raspberrypi/rpi/rpi.env
 @@ -77,4 +77,4 @@ pxefile_addr_r=0x05500000
@@ -829,9 +829,9 @@ index 9ac9d6768ca..aa4257d3a8c 100644
  ramdisk_addr_r=0x05700000
  
 -boot_targets=mmc usb pxe dhcp
-+boot_targets=blkmap mmc nvme usb dhcp
++boot_targets=mmc usb nvme dhcp
 diff --git a/configs/rpi_arm64_defconfig b/configs/rpi_arm64_defconfig
-index 69e8e72c5d7..ace6fad59e0 100644
+index 69e8e72c5d7..9386c40948a 100644
 --- a/configs/rpi_arm64_defconfig
 +++ b/configs/rpi_arm64_defconfig
 @@ -4,7 +4,7 @@ CONFIG_ARCH_BCM283X=y
@@ -848,7 +848,7 @@ index 69e8e72c5d7..ace6fad59e0 100644
  CONFIG_FDT_SIMPLEFB=y
  CONFIG_USE_PREBOOT=y
 -CONFIG_PREBOOT="pci enum; usb start;"
-+CONFIG_PREBOOT="pci enum; nvme scan; usb start; if blkmap get media dev omit; then blkmap destroy media; fi; if load usb :auto ${loadaddr} vm.iso; then setexpr fileblks ${filesize} + 0x1ff; setexpr fileblks ${fileblks} / 0x200; blkmap create media; blkmap map media 0 ${fileblks} mem ${loadaddr}; blkmap get media dev devnum; part set blkmap ${devnum} iso; fi; if load usb :auto ${scriptaddr} persistent.env; then env import -t ${scriptaddr} ${filesize}; fi; if load usb :auto ${scriptaddr} once.env; then env import -t ${scriptaddr} ${filesize}; fatrm usb :auto once.env; fi; env export -t ${scriptaddr}; fatwrite usb :auto ${scriptaddr} machine.env ${filesize}"
++CONFIG_PREBOOT="pci enum; nvme scan; usb start; if load usb :auto ${scriptaddr} persistent.env; then env import -t ${scriptaddr} ${filesize}; fi; if load usb :auto ${scriptaddr} once.env; then env import -t ${scriptaddr} ${filesize}; fatrm usb :auto once.env; fi; env export -t ${scriptaddr}; fatwrite usb :auto ${scriptaddr} machine.env ${filesize}"
  CONFIG_SYS_PBSIZE=1049
  # CONFIG_DISPLAY_CPUINFO is not set
  # CONFIG_DISPLAY_BOARDINFO is not set
